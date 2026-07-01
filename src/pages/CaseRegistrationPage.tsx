@@ -32,6 +32,8 @@ const batchColumns: Array<{ key: keyof BatchCaseRow; label: string; type?: strin
   { key: 'amount', label: '金額' }
 ];
 
+type BatchFill = Pick<BatchCaseRow, 'handler_name' | 'broker_id' | 'employer_name' | 'application_date'>;
+
 export function CaseRegistrationPage({
   data,
   profile,
@@ -47,9 +49,11 @@ export function CaseRegistrationPage({
   const firstBroker = data.brokers.find((item) => item.is_enabled)?.id ?? '';
   const firstAppItem = data.applicationItems.find((item) => item.is_enabled)?.id ?? '';
   const firstHandler = data.people.find((item) => item.show_as_handler && item.is_enabled)?.name ?? profile?.display_name ?? '';
+  const makeDefaultRow = (): BatchCaseRow => ({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() });
   const [mode, setMode] = useState<'single' | 'batch'>('single');
-  const [single, setSingle] = useState<BatchCaseRow>({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler });
-  const [rows, setRows] = useState<BatchCaseRow[]>(() => Array.from({ length: 10 }, () => ({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler })));
+  const [single, setSingle] = useState<BatchCaseRow>(() => makeDefaultRow());
+  const [rows, setRows] = useState<BatchCaseRow[]>(() => Array.from({ length: 10 }, makeDefaultRow));
+  const [batchFill, setBatchFill] = useState<BatchFill>({ handler_name: firstHandler, broker_id: firstBroker, employer_name: '', application_date: todayTaipei() });
   const [submitting, setSubmitting] = useState(false);
 
   const handlers = useMemo(() => data.people.filter((item) => item.is_enabled && item.show_as_handler), [data.people]);
@@ -61,6 +65,16 @@ export function CaseRegistrationPage({
     return item ? String(Number(item.default_amount ?? 0)) : '';
   }
 
+  function resetSingle() {
+    setSingle(makeDefaultRow());
+    pushToast({ type: 'info', title: '已清除單筆案件內容' });
+  }
+
+  function resetBatchRows() {
+    setRows(Array.from({ length: 10 }, makeDefaultRow));
+    pushToast({ type: 'info', title: '已清除批次送件內容' });
+  }
+
   function updateSingle(key: keyof BatchCaseRow, value: string) {
     setSingle((current) => ({ ...current, [key]: value, error: '', ...(key === 'application_item_id' ? { amount: itemAmount(value) } : {}) }));
   }
@@ -70,11 +84,29 @@ export function CaseRegistrationPage({
   }
 
   function addRows() {
-    setRows((current) => [...current, ...Array.from({ length: 5 }, () => ({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler }))]);
+    setRows((current) => [...current, ...Array.from({ length: 5 }, makeDefaultRow)]);
   }
 
   function deleteRow(index: number) {
     setRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
+  }
+
+  function applyBatchFill() {
+    const parsedDate = batchFill.application_date ? parseDateLoose(batchFill.application_date) : '';
+    if (batchFill.application_date && !parsedDate) {
+      pushToast({ type: 'warning', title: DATE_ERROR });
+      return;
+    }
+    setRows((current) => current.map((row) => ({
+      ...row,
+      handler_name: batchFill.handler_name || row.handler_name,
+      broker_id: batchFill.broker_id || row.broker_id,
+      employer_name: batchFill.employer_name || row.employer_name,
+      application_date: parsedDate || row.application_date,
+      error: ''
+    })));
+    if (parsedDate) setBatchFill((current) => ({ ...current, application_date: parsedDate }));
+    pushToast({ type: 'success', title: '已一鍵填入批次欄位' });
   }
 
   function normalizeSelectValue(key: keyof BatchCaseRow, value: string): string {
@@ -110,7 +142,7 @@ export function CaseRegistrationPage({
     const lines = text.replace(/\r/g, '').split('\n').filter((line) => line.length > 0);
     setRows((current) => {
       const next = [...current];
-      while (next.length < rowIndex + lines.length) next.push({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler });
+      while (next.length < rowIndex + lines.length) next.push(makeDefaultRow());
       lines.forEach((line, lineOffset) => {
         const values = line.split('\t');
         values.forEach((value, colOffset) => {
@@ -208,7 +240,7 @@ export function CaseRegistrationPage({
     try {
       await createCases(valid, data, profile);
       pushToast({ type: 'success', title: '案件已登記' });
-      setSingle({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() });
+      setSingle(makeDefaultRow());
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -232,7 +264,7 @@ export function CaseRegistrationPage({
         auditAction: '現場申請案件建立'
       });
       pushToast({ type: 'success', title: '現場申請已建立', message: '案件已直接帶入傳真/領件。' });
-      setSingle({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() });
+      setSingle(makeDefaultRow());
       await reload();
       onGoFaxPickup?.();
     } catch (err) {
@@ -253,7 +285,7 @@ export function CaseRegistrationPage({
     try {
       await createCases(valid, data, profile);
       pushToast({ type: 'success', title: `批次送件完成`, message: `已新增 ${valid.length} 筆案件。` });
-      setRows(Array.from({ length: 10 }, () => ({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() })));
+      setRows(Array.from({ length: 10 }, makeDefaultRow));
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '批次新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -294,14 +326,23 @@ export function CaseRegistrationPage({
           ))}
           {single.error ? <div className="inline-error full-span">{single.error}</div> : null}
           <div className="form-actions full-span">
+            <button className="ghost-button" type="button" onClick={resetSingle} disabled={submitting}>一鍵清除內容</button>
             <button className="secondary-button" type="button" onClick={submitOnsite} disabled={submitting}>現場申請</button>
             <button className="primary-button" disabled={submitting}>送出登記</button>
           </div>
         </form>
       ) : (
         <section className="card full-width-card">
+          <div className="batch-fill-panel">
+            <label><span>一鍵承辦</span><select value={batchFill.handler_name} onChange={(e) => setBatchFill((current) => ({ ...current, handler_name: e.target.value }))}><option value="">不變更</option>{handlers.map((item) => <option key={item.id} value={item.name}>{item.display_name}</option>)}</select></label>
+            <label><span>一鍵仲介</span><select value={batchFill.broker_id} onChange={(e) => setBatchFill((current) => ({ ...current, broker_id: e.target.value }))}><option value="">不變更</option>{brokers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label><span>一鍵雇主</span><input value={batchFill.employer_name} onChange={(e) => setBatchFill((current) => ({ ...current, employer_name: e.target.value }))} /></label>
+            <label><span>一鍵申請日期</span><input value={batchFill.application_date} onChange={(e) => setBatchFill((current) => ({ ...current, application_date: e.target.value }))} onBlur={() => setBatchFill((current) => ({ ...current, application_date: parseDateLoose(current.application_date) ?? current.application_date }))} /></label>
+            <button className="secondary-button" type="button" onClick={applyBatchFill}>一鍵輸入</button>
+          </div>
           <div className="toolbar-row">
             <button className="secondary-button" type="button" onClick={addRows}>增加列（+5）</button>
+            <button className="ghost-button" type="button" onClick={resetBatchRows}>一鍵清除內容</button>
             <button className="primary-button" type="button" onClick={submitBatch} disabled={submitting}>批次送出</button>
           </div>
           <div className="table-wrap batch-grid-wrap">

@@ -10,7 +10,7 @@ export function DashboardPage({ data }: { data: ArcData }) {
   const pendingBatch = data.batches.filter((item) => item.status === 'pending' || item.status === 'amount_error').length;
   const weekday = taipeiWeekday();
   const todayLabel = weekday === 1 ? '週一繳費' : weekday === 2 ? '週二傳真' : weekday === 4 ? '週四領件' : '今日無固定提醒';
-  const chipResidenceUrl = String(data.settings.find((item) => item.setting_group === 'links' && item.setting_key === 'chip_residence_query')?.setting_value?.url ?? '');
+  const chipResidenceUrl = String(data.settings.find((item) => item.setting_group === 'links' && item.setting_key === 'chip_residence_query')?.setting_value?.url ?? 'https://niaicinfo.immigration.gov.tw/icinfo-frontend/zh#MyAnchor');
   const externalLinks = [
     { label: '外籍移工線上申辦系統', url: 'https://coa.immigration.gov.tw/coa-frontend/foreign-labor' },
     { label: '移民署全球資訊網', url: 'https://www.immigration.gov.tw/7163' },

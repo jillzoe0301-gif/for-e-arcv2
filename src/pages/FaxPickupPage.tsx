@@ -9,7 +9,7 @@ import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, FaxPickupItem, PickupRecord, PickupRecordItem, Profile } from '../types';
 import { formatDate, nextWeekThursday, taipeiWeekday, todayTaipei } from '../utils/date';
 import { canDeletePickupRecord } from '../utils/permissions';
-import { printFaxPickupSheet, printSignatureSheet } from '../utils/print';
+import { printFaxAndSignatureSheets, printFaxPickupSheet, printSignatureSheet } from '../utils/print';
 import { rowMatchesKeyword } from '../utils/search';
 
 type DraftMap = Record<string, { receipt_no: string; foreign_no_last5: string; receipt_order: string; expected_pickup_date: string; fax_date: string }>;
@@ -22,6 +22,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<PickupRecord | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
+  const [printHandler, setPrintHandler] = useState(profile?.display_name ?? '');
 
   const weekday = taipeiWeekday();
   const reminders = [
@@ -46,6 +47,8 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       String(a.receipt_no).localeCompare(String(b.receipt_no), 'zh-Hant', { numeric: true }) ||
       String(a.foreign_no_last5).localeCompare(String(b.foreign_no_last5), 'zh-Hant', { numeric: true })
     ), [data.cases, data.faxPickupItems, planDate]);
+
+  const activePickupRecords = useMemo(() => data.pickupRecords.filter((record) => !record.deleted_at), [data.pickupRecords]);
 
   function draftFor(caseRow: ArcCase) {
     return drafts[caseRow.id] ?? {
@@ -162,6 +165,44 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       .filter((row) => Boolean(row.caseRow));
   }
 
+  function printOptions() {
+    const fwBroker = data.brokers.find((item) => item.code === 'FW' || item.name.includes('灃康'));
+    const taoyuan = data.serviceStations.find((item) => String(item.city ?? '').includes('桃園') || item.name.includes('桃園'));
+    return {
+      brokerName: '灃康',
+      brokerPhone: fwBroker?.phone ?? '',
+      handlerName: printHandler,
+      stationInfo: taoyuan ? `桃園移民署電話：${taoyuan.phone ?? ''}　傳真：${taoyuan.fax ?? ''}` : '桃園移民署電話：__________　傳真：__________'
+    };
+  }
+
+  function ensurePrintableRows() {
+    const rows = printableRows();
+    if (!rows.length) {
+      pushToast({ type: 'warning', title: '請先勾選預計領件資料' });
+      return null;
+    }
+    return rows;
+  }
+
+  function printFaxOnly() {
+    const rows = ensurePrintableRows();
+    if (!rows) return;
+    printFaxPickupSheet(rows, planDate, printOptions());
+  }
+
+  function printSignOnly() {
+    const rows = ensurePrintableRows();
+    if (!rows) return;
+    printSignatureSheet(rows, planDate);
+  }
+
+  function printBoth() {
+    const rows = ensurePrintableRows();
+    if (!rows) return;
+    printFaxAndSignatureSheets(rows, planDate, printOptions());
+  }
+
   async function markNotReceived(entry: { recordItem: PickupRecordItem; caseRow: ArcCase }) {
     try {
       await markPickupNotReceived({ recordItem: entry.recordItem, caseRow: entry.caseRow, data, actor: profile });
@@ -189,11 +230,11 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'no', title: '編號', render: (_row: ArcCase, index: number) => index + 1 },
     { key: 'feeDate', title: '收費日期', render: (row: ArcCase) => formatDate(row.payment_date) },
     { key: 'receiptNo', title: '收件編號', render: (row: ArcCase) => <input className="mini-input" value={draftFor(row).receipt_no} onChange={(e) => setDraft(row.id, 'receipt_no', e.target.value)} /> },
-    { key: 'ic', title: 'IC 卡', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_ic_card ? '是' : '否' },
+    { key: 'ic', title: 'IC 卡', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_ic_card ? 'V' : '' },
     { key: 'count', title: '張數', render: () => '1' },
     { key: 'last4', title: '經手人後四碼', render: () => '' },
     { key: 'foreign', title: '外字五碼', render: (row: ArcCase) => <input className="mini-input" value={draftFor(row).foreign_no_last5} onChange={(e) => setDraft(row.id, 'foreign_no_last5', e.target.value)} /> },
-    { key: 'old', title: '舊卡', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card ? '是' : '否' },
+    { key: 'old', title: '舊卡', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card ? 'V' : '' },
     { key: 'employer', title: '雇主', render: (row: ArcCase) => row.employer_name },
     { key: 'worker', title: '工人', render: (row: ArcCase) => row.worker_name },
     { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name },
@@ -247,18 +288,20 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
         <div className="toolbar-row align-end">
           <h2>預計領件區</h2>
           <label className="inline-field"><span>領件日</span><input type="date" value={planDate} onChange={(e) => { setPlanDate(e.target.value); setSelectedPlanIds([]); }} /></label>
+          <label className="inline-field"><span>列印承辦</span><select value={printHandler} onChange={(e) => setPrintHandler(e.target.value)}><option value="">請選擇</option>{data.people.filter((item) => item.is_enabled && item.show_as_handler).map((item) => <option key={item.id} value={item.display_name}>{item.display_name}</option>)}</select></label>
           <button className="secondary-button" onClick={selectAllPlans}>一鍵勾選</button>
           <button className="ghost-button" onClick={() => setSelectedPlanIds([])}>一鍵取消</button>
-          <button className="secondary-button" onClick={() => printFaxPickupSheet(printableRows(), planDate)}>列印傳真領件單</button>
-          <button className="secondary-button" onClick={() => printSignatureSheet(printableRows(), planDate)}>列印簽收單</button>
+          <button className="secondary-button" onClick={printFaxOnly}>列印傳真領件單</button>
+          <button className="secondary-button" onClick={printSignOnly}>列印簽收單</button>
+          <button className="secondary-button" onClick={printBoth}>列印傳真+簽收</button>
           <button className="primary-button" onClick={() => createRecordForPlanIds(selectedPlanIds)}>建立領件紀錄</button>
         </div>
         <DataTable columns={planColumns} rows={planRows} rowKey={(row) => row.plan.id} emptyText="此領件日沒有預計領件資料" />
       </section>
       <section className="card full-width-card">
         <h2>傳真領件紀錄</h2>
-        <DataTable columns={recordColumns} rows={data.pickupRecords} rowKey={(row) => row.id} emptyText="目前沒有傳真領件紀錄" />
-        {data.pickupRecords.slice(0, 5).map((record) => {
+        <DataTable columns={recordColumns} rows={activePickupRecords} rowKey={(row) => row.id} emptyText="目前沒有傳真領件紀錄" />
+        {activePickupRecords.slice(0, 5).map((record) => {
           const items = data.pickupRecordItems.filter((item) => item.record_id === record.id).map((recordItem) => ({ recordItem, caseRow: data.cases.find((caseRow) => caseRow.id === recordItem.case_id) })).filter((entry): entry is { recordItem: PickupRecordItem; caseRow: ArcCase } => Boolean(entry.caseRow));
           return (
             <details className="record-detail" key={record.id}>

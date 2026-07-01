@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
-import { cancelCasePayment, createPaymentBatch, restoreCaseToPayment } from '../api/repository';
+import { cancelCasePayment, createPaymentBatch, deleteArcCase, restoreCaseToPayment } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchInput } from '../components/SearchInput';
 import { CaseStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
-import type { ArcCase, ArcData, Profile } from '../types';
+import type { ArcCase, ArcData, BankAccount, Profile } from '../types';
 import { todayTaipei } from '../utils/date';
 import { formatMoney } from '../utils/number';
+import { canDeleteData } from '../utils/permissions';
 import { rowMatchesKeyword } from '../utils/search';
 
 export function PaymentPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
@@ -36,6 +37,15 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   const filteredAccounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === brokerId);
   const total = selectedCases.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
   const selectedAccount = data.accounts.find((item) => item.id === accountId);
+
+  async function copyAccount(account: BankAccount) {
+    try {
+      await navigator.clipboard.writeText(account.account_no);
+      pushToast({ type: 'success', title: '已複製銀行帳號', message: account.account_no });
+    } catch {
+      pushToast({ type: 'warning', title: '無法自動複製，請手動複製。' });
+    }
+  }
 
   function toggle(row: ArcCase) {
     const nextSelected = selectedIds.includes(row.id) ? selectedIds.filter((id) => id !== row.id) : [...selectedIds, row.id];
@@ -107,6 +117,21 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     }
   }
 
+  async function removeCancelled(row: ArcCase) {
+    if (!canDeleteData(profile?.role)) {
+      pushToast({ type: 'warning', title: '您沒有刪除權限。' });
+      return;
+    }
+    if (!window.confirm('確定要刪除此筆資料嗎？刪除後不可復原。')) return;
+    try {
+      await deleteArcCase(row, data, profile, '居留證繳費｜取消案件');
+      pushToast({ type: 'success', title: '取消案件已刪除' });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
   const columns = [
     { key: 'check', title: '選取', render: (row: ArcCase) => <input type="checkbox" checked={selectedIds.includes(row.id)} onChange={() => toggle(row)} /> },
     { key: 'case_no', title: '案件編號', render: (row: ArcCase) => row.case_no },
@@ -126,7 +151,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     { key: 'employer', title: '雇主', render: (row: ArcCase) => row.employer_name },
     { key: 'worker', title: '工人', render: (row: ArcCase) => row.worker_name },
     { key: 'reason', title: '取消原因', render: (row: ArcCase) => row.cancelled_reason ?? '' },
-    { key: 'restore', title: '操作', render: (row: ArcCase) => <button className="secondary-button mini" onClick={() => restore(row)}>恢復待繳</button> }
+    { key: 'restore', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal"><button className="secondary-button mini" onClick={() => restore(row)}>恢復待繳</button>{canDeleteData(profile?.role) ? <button className="danger-link" onClick={() => removeCancelled(row)}>刪除</button> : null}</div> }
   ];
 
   return (
@@ -149,11 +174,11 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
             {data.accounts.filter((account) => !brokerId || account.broker_id === brokerId).map((account) => {
               const broker = data.brokers.find((item) => item.id === account.broker_id);
               return (
-                <div className={`balance-card ${account.id === accountId ? 'selected' : ''}`} key={account.id}>
+                <button type="button" className={`balance-card copy-card ${account.id === accountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號">
                   <span>{broker?.name}｜{account.account_name}</span>
                   <strong>{formatMoney(account.current_balance)}</strong>
-                  <small>後五碼：{account.account_last5 ?? account.account_no.slice(-5)}</small>
-                </div>
+                  <small>後五碼：{account.account_last5 ?? account.account_no.slice(-5)}｜點擊複製帳號</small>
+                </button>
               );
             })}
           </div>

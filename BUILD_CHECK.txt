@@ -1,7 +1,17 @@
-Build check completed in container:
+ARC V13 V26 更新檔 build check
 
-npm install --ignore-scripts
+已執行：
 npm run build
 
-Result: success
-2026-07-01 V25 update build ok: npm run build completed after requested fixes.
+結果：成功
+
+本版重點：
+- 修正傳真領件紀錄刪除與案件刪除，新增 Supabase RPC 防止 RLS/權限造成前端刪除失敗
+- 銀行帳號、移民署服務站、專勤隊聯絡資訊可點擊複製
+- 批次送件新增一鍵輸入承辦、仲介、雇主、申請日期
+- 單筆案件登記與批次送件新增一鍵清除內容
+- 匯出資料新增年份、月份、申請項目、人員篩選
+- 傳真領件單 IC 卡 / 舊卡勾選顯示 V，未勾選空白
+- 傳真領件單標題與桃園移民署小字資訊、灃康仲介資訊、列印承辦選擇
+- 預計領件區新增一鍵列印傳真單 + 簽收單
+- 晶片居留證資料查詢網址更新

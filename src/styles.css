@@ -403,3 +403,41 @@ input[type="checkbox"] {
 .stats-page .data-table { table-layout: auto; min-width: 0; }
 .stats-page .data-table th,
 .stats-page .data-table td { white-space: normal; word-break: break-word; }
+
+.batch-fill-panel,
+.export-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfcf8;
+}
+.batch-fill-panel button { min-height: 38px; }
+.copy-text-button {
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-weight: 800;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: copy;
+  text-align: left;
+}
+.copy-text-button:hover { color: var(--blue-dark); }
+.copy-card {
+  width: 100%;
+  text-align: left;
+  cursor: copy;
+  font-family: inherit;
+}
+.copy-card:hover { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(39,84,138,.08); }
+.action-stack.horizontal { display: flex; gap: 8px; justify-content: center; align-items: center; }
+@media (max-width: 760px) {
+  .batch-fill-panel,
+  .export-filter-grid { grid-template-columns: 1fr; }
+}

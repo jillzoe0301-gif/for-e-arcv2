@@ -20,6 +20,15 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
     setReason('');
   }
 
+  async function copyAccount(account: BankAccount) {
+    try {
+      await navigator.clipboard.writeText(account.account_no);
+      pushToast({ type: 'success', title: '已複製銀行帳號', message: account.account_no });
+    } catch {
+      pushToast({ type: 'warning', title: '無法自動複製，請手動複製。' });
+    }
+  }
+
   async function submit() {
     if (!target) return;
     const money = parseMoney(nextBalance);
@@ -37,7 +46,7 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
 
   return (
     <div className="page-content">
-      <PageHeader title="仲介與扣款帳號" description="灃康不同帳號餘額分開顯示，不合併成灃康總額。" />
+      <PageHeader title="仲介與扣款帳號" description="灃康不同帳號餘額分開顯示，不合併成灃康總額。銀行帳號可點擊複製。" />
       <section className="card full-width-card">
         <h2>仲介公司</h2>
         <DataTable columns={[
@@ -54,7 +63,7 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
           { key: 'broker', title: '所屬仲介', render: (row: BankAccount) => data.brokers.find((item) => item.id === row.broker_id)?.name ?? '' },
           { key: 'account', title: '帳戶名稱', render: (row: BankAccount) => row.account_name },
           { key: 'bank', title: '銀行', render: (row: BankAccount) => `${row.bank_name} ${row.bank_code}` },
-          { key: 'no', title: '帳號', render: (row: BankAccount) => row.account_no },
+          { key: 'no', title: '帳號', render: (row: BankAccount) => <button type="button" className="copy-text-button" onClick={() => copyAccount(row)} title="點擊複製銀行帳號">{row.account_no}</button> },
           { key: 'balance', title: '目前餘額', render: (row: BankAccount) => formatMoney(row.current_balance) },
           { key: 'action', title: '操作', render: (row: BankAccount) => canAdjustBalance(profile?.role) ? <button className="secondary-button mini" onClick={() => open(row)}>調整餘額</button> : '無權限' }
         ]} rows={data.accounts} rowKey={(row) => row.id} />
