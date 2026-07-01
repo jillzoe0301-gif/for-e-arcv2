@@ -179,3 +179,34 @@ Vercel 會自動部署。
 - 只改前端顯示、搜尋、流程 JSON：不用重跑 SQL
 - 新增資料表、欄位、RPC、RLS：要先在 Supabase SQL Editor 執行 SQL
 
+
+## 2026-07-01 V25 修正包
+
+本次更新包含：
+
+- 居留案件登記單筆新增「現場申請」按鈕，儲存後直接進入傳真/領件，不進待繳。
+- 申請日期支援西元、民國年、斜線、橫線、點號與「民國115年3月1日」，統一儲存 yyyy-mm-dd。
+- 傳真領件紀錄刪除改為管理員限定，刪除明細但不刪原始案件，並寫入異動紀錄與刪除救回資料。
+- checkbox 縮小、全系統畫面字體縮小約 2pt，不影響列印格式。
+- 統計頁改為：每月每人總件數、每年每人總件數、各項目本月/本年、年度每月、各仲介統計。
+- 首頁新增常用外部連結區。
+- 案件查詢、財務對帳確認、財務查詢新增管理員刪除；財務刪除會建立帳戶沖正紀錄。
+- 會計可查看仲介與扣款帳號、餘額，但不可任意調整餘額。
+- 居留證繳費頁新增仲介銀行帳戶餘額區塊，依帳戶分開顯示。
+- 新增 `supabase/migrations/202607010002_arc_v13_formal_update.sql`，可導入移民署服務站、專勤隊聯絡資訊與晶片居留證查詢連結設定。
+
+若已經部署過舊版，請先覆蓋檔案後執行：
+
+```bash
+npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
+npm run build
+git add .
+git commit -m "update ARC V13 V25 fixes"
+git push origin main
+```
+
+若要導入官方聯絡資訊，請到 Supabase SQL Editor 執行：
+
+```sql
+-- 執行 supabase/migrations/202607010002_arc_v13_formal_update.sql
+```

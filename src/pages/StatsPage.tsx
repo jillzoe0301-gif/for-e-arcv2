@@ -4,10 +4,10 @@ import { PageHeader } from '../components/PageHeader';
 import type { ArcData } from '../types';
 import { monthKey, todayTaipei, yearKey } from '../utils/date';
 
-interface HandlerMonthRow {
+interface HandlerTotalRow {
+  year: string;
+  month?: string;
   handler: string;
-  month: string;
-  itemName: string;
   count: number;
 }
 
@@ -17,72 +17,130 @@ interface ItemStatRow {
   yearCount: number;
 }
 
+interface BrokerStatRow {
+  brokerName: string;
+  monthCount: number;
+  yearCount: number;
+  totalCount: number;
+}
+
+interface YearMonthRow {
+  year: string;
+  months: number[];
+  total: number;
+}
+
 export function StatsPage({ data }: { data: ArcData }) {
-  const currentMonth = todayTaipei().slice(0, 7);
+  const currentMonth = todayTaipei().slice(5, 7);
   const currentYear = todayTaipei().slice(0, 4);
   const [month, setMonth] = useState(currentMonth);
   const [year, setYear] = useState(currentYear);
 
-  const statCases = data.cases.filter((caseRow) => {
+  const statCases = useMemo(() => data.cases.filter((caseRow) => {
     const item = data.applicationItems.find((entry) => entry.id === caseRow.application_item_id);
     return item?.included_in_stats && caseRow.status !== 'cancelled';
-  });
+  }), [data.applicationItems, data.cases]);
 
-  const handlerRows = useMemo(() => {
-    const map = new Map<string, HandlerMonthRow>();
-    statCases.forEach((caseRow) => {
-      const m = monthKey(caseRow.application_date);
-      const itemName = data.applicationItems.find((item) => item.id === caseRow.application_item_id)?.name ?? '未設定';
-      const key = `${caseRow.handler_name}|${m}|${itemName}`;
-      const row = map.get(key) ?? { handler: caseRow.handler_name, month: m, itemName, count: 0 };
-      row.count += 1;
-      map.set(key, row);
-    });
-    return Array.from(map.values()).filter((row) => !month || row.month === month).sort((a, b) => a.handler.localeCompare(b.handler, 'zh-Hant') || a.itemName.localeCompare(b.itemName, 'zh-Hant'));
-  }, [data.applicationItems, month, statCases]);
+  const years = useMemo(() => {
+    const values = Array.from(new Set([...statCases.map((item) => yearKey(item.application_date)), currentYear].filter(Boolean))).sort().reverse();
+    return values.length ? values : [currentYear];
+  }, [currentYear, statCases]);
 
-  const itemRows = useMemo(() => {
-    return data.applicationItems.filter((item) => item.included_in_stats).map<ItemStatRow>((item) => ({
-      itemName: item.name,
-      monthCount: statCases.filter((caseRow) => caseRow.application_item_id === item.id && monthKey(caseRow.application_date) === month).length,
-      yearCount: statCases.filter((caseRow) => caseRow.application_item_id === item.id && yearKey(caseRow.application_date) === year).length
-    }));
-  }, [data.applicationItems, month, statCases, year]);
+  const selectedMonthKey = `${year}-${month}`;
 
-  const years = Array.from(new Set(statCases.map((item) => yearKey(item.application_date)).filter(Boolean))).sort().reverse();
-  const months = Array.from(new Set(statCases.map((item) => monthKey(item.application_date)).filter(Boolean))).sort().reverse();
+  const monthlyHandlerRows = useMemo(() => {
+    const map = new Map<string, HandlerTotalRow>();
+    statCases
+      .filter((caseRow) => monthKey(caseRow.application_date) === selectedMonthKey)
+      .forEach((caseRow) => {
+        const key = `${year}|${month}|${caseRow.handler_name}`;
+        const row = map.get(key) ?? { year, month, handler: caseRow.handler_name, count: 0 };
+        row.count += 1;
+        map.set(key, row);
+      });
+    return Array.from(map.values()).sort((a, b) => a.handler.localeCompare(b.handler, 'zh-Hant'));
+  }, [month, selectedMonthKey, statCases, year]);
 
-  const cumulativeRows = years.map((yearItem) => ({ year: yearItem, count: statCases.filter((caseRow) => yearKey(caseRow.application_date) === yearItem).length }));
+  const yearlyHandlerRows = useMemo(() => {
+    const map = new Map<string, HandlerTotalRow>();
+    statCases
+      .filter((caseRow) => yearKey(caseRow.application_date) === year)
+      .forEach((caseRow) => {
+        const key = `${year}|${caseRow.handler_name}`;
+        const row = map.get(key) ?? { year, handler: caseRow.handler_name, count: 0 };
+        row.count += 1;
+        map.set(key, row);
+      });
+    return Array.from(map.values()).sort((a, b) => a.handler.localeCompare(b.handler, 'zh-Hant'));
+  }, [statCases, year]);
+
+  const itemRows = useMemo(() => data.applicationItems.filter((item) => item.included_in_stats).map<ItemStatRow>((item) => ({
+    itemName: item.name,
+    monthCount: statCases.filter((caseRow) => caseRow.application_item_id === item.id && monthKey(caseRow.application_date) === selectedMonthKey).length,
+    yearCount: statCases.filter((caseRow) => caseRow.application_item_id === item.id && yearKey(caseRow.application_date) === year).length
+  })), [data.applicationItems, selectedMonthKey, statCases, year]);
+
+  const yearMonthRows = useMemo<YearMonthRow[]>(() => {
+    const months = Array.from({ length: 12 }, (_, index) => statCases.filter((caseRow) => yearKey(caseRow.application_date) === year && monthKey(caseRow.application_date).endsWith(String(index + 1).padStart(2, '0'))).length);
+    return [{ year, months, total: months.reduce((sum, count) => sum + count, 0) }];
+  }, [statCases, year]);
+
+  const brokerRows = useMemo(() => data.brokers.map<BrokerStatRow>((broker) => ({
+    brokerName: broker.name,
+    monthCount: statCases.filter((caseRow) => caseRow.broker_id === broker.id && monthKey(caseRow.application_date) === selectedMonthKey).length,
+    yearCount: statCases.filter((caseRow) => caseRow.broker_id === broker.id && yearKey(caseRow.application_date) === year).length,
+    totalCount: statCases.filter((caseRow) => caseRow.broker_id === broker.id).length
+  })), [data.brokers, selectedMonthKey, statCases, year]);
+
+  const handlerColumns = [
+    { key: 'year', title: '年份', render: (row: HandlerTotalRow) => row.year },
+    { key: 'month', title: '月份', render: (row: HandlerTotalRow) => row.month ?? '全年' },
+    { key: 'handler', title: '承辦', render: (row: HandlerTotalRow) => row.handler },
+    { key: 'count', title: '申請總件數', render: (row: HandlerTotalRow) => row.count }
+  ];
 
   return (
     <div className="page-content stats-page">
-      <PageHeader title="統計數據" description="每月每個人申請件數、各項目本月 / 本年數據、年度累計紀錄。" />
+      <PageHeader title="統計數據" description="每月每人總件數、每年每人總件數、各項目、年度各月與仲介申請數據。" />
       <section className="card full-width-card compact-table-card">
         <div className="toolbar-row">
-          <h2>每月每個人申請件數</h2>
-          <label className="inline-field"><span>年月</span><select value={month} onChange={(e) => setMonth(e.target.value)}>{months.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <h2>年份、月份篩選</h2>
+          <label className="inline-field"><span>年份</span><select value={year} onChange={(e) => setYear(e.target.value)}>{years.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label className="inline-field"><span>月份</span><select value={month} onChange={(e) => setMonth(e.target.value)}>{Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map((item) => <option key={item} value={item}>{Number(item)}月</option>)}</select></label>
         </div>
-        <DataTable columns={[
-          { key: 'handler', title: '承辦 / 行政人員', render: (row: HandlerMonthRow) => row.handler },
-          { key: 'month', title: '年月', render: (row: HandlerMonthRow) => row.month },
-          { key: 'item', title: '申請項目', render: (row: HandlerMonthRow) => row.itemName },
-          { key: 'count', title: '件數', render: (row: HandlerMonthRow) => row.count }
-        ]} rows={handlerRows} rowKey={(row) => `${row.handler}-${row.month}-${row.itemName}`} emptyText="此月份沒有統計資料" />
       </section>
       <section className="card full-width-card compact-table-card">
-        <div className="toolbar-row"><h2>各項目申請數據｜本月 / 本年</h2><label className="inline-field"><span>年度</span><select value={year} onChange={(e) => setYear(e.target.value)}>{years.map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div>
+        <h2>每月每人申請總件數</h2>
+        <DataTable columns={handlerColumns} rows={monthlyHandlerRows} rowKey={(row) => `${row.year}-${row.month}-${row.handler}`} emptyText="此月份沒有統計資料" />
+      </section>
+      <section className="card full-width-card compact-table-card">
+        <h2>每年每人申請總件數</h2>
+        <DataTable columns={handlerColumns} rows={yearlyHandlerRows} rowKey={(row) => `${row.year}-${row.handler}`} emptyText="此年度沒有統計資料" />
+      </section>
+      <section className="card full-width-card compact-table-card">
+        <h2>各項目申請數據｜每月 / 每年</h2>
         <DataTable columns={[
           { key: 'item', title: '申請項目', render: (row: ItemStatRow) => row.itemName },
           { key: 'month', title: '本月件數', render: (row: ItemStatRow) => row.monthCount },
           { key: 'year', title: '本年件數', render: (row: ItemStatRow) => row.yearCount }
         ]} rows={itemRows} rowKey={(row) => row.itemName} emptyText="沒有項目統計" />
       </section>
-      <section className="card full-width-card compact-table-card">
-        <h2>年度累計紀錄</h2>
+      <section className="card full-width-card compact-table-card yearly-month-table">
+        <h2>年度每個月的數量數據</h2>
         <DataTable columns={[
-          { key: 'year', title: '年度', render: (row: { year: string }) => row.year },
-          { key: 'count', title: '累計件數', render: (row: { count: number }) => row.count }
-        ]} rows={cumulativeRows} rowKey={(row) => row.year} emptyText="沒有年度累計資料" />
+          { key: 'year', title: '年度', render: (row: YearMonthRow) => row.year },
+          ...Array.from({ length: 12 }, (_, index) => ({ key: `m${index + 1}`, title: `${index + 1}月`, render: (row: YearMonthRow) => row.months[index] })),
+          { key: 'total', title: '年度合計', render: (row: YearMonthRow) => row.total }
+        ]} rows={yearMonthRows} rowKey={(row) => row.year} emptyText="沒有年度數據" />
+      </section>
+      <section className="card full-width-card compact-table-card">
+        <h2>各仲介的申請數據</h2>
+        <DataTable columns={[
+          { key: 'broker', title: '仲介', render: (row: BrokerStatRow) => row.brokerName },
+          { key: 'month', title: '月件數', render: (row: BrokerStatRow) => row.monthCount },
+          { key: 'year', title: '年件數', render: (row: BrokerStatRow) => row.yearCount },
+          { key: 'total', title: '合計件數', render: (row: BrokerStatRow) => row.totalCount }
+        ]} rows={brokerRows} rowKey={(row) => row.brokerName} emptyText="沒有仲介統計" />
       </section>
     </div>
   );

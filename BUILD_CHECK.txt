@@ -4,3 +4,4 @@ npm install --ignore-scripts
 npm run build
 
 Result: success
+2026-07-01 V25 update build ok: npm run build completed after requested fixes.

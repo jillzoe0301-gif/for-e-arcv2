@@ -6,6 +6,8 @@ import type { ArcData, BatchCaseRow, Profile, RegisterCaseInput } from '../types
 import { todayTaipei, parseDateLoose } from '../utils/date';
 import { parseMoney } from '../utils/number';
 
+const DATE_ERROR = '申請日期格式不正確，請重新輸入。';
+
 const emptyRow: BatchCaseRow = {
   handler_name: '',
   broker_id: '',
@@ -30,7 +32,17 @@ const batchColumns: Array<{ key: keyof BatchCaseRow; label: string; type?: strin
   { key: 'amount', label: '金額' }
 ];
 
-export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
+export function CaseRegistrationPage({
+  data,
+  profile,
+  reload,
+  onGoFaxPickup
+}: {
+  data: ArcData;
+  profile: Profile | null;
+  reload: () => Promise<void>;
+  onGoFaxPickup?: () => void;
+}) {
   const { pushToast } = useToast();
   const firstBroker = data.brokers.find((item) => item.is_enabled)?.id ?? '';
   const firstAppItem = data.applicationItems.find((item) => item.is_enabled)?.id ?? '';
@@ -50,11 +62,11 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
   }
 
   function updateSingle(key: keyof BatchCaseRow, value: string) {
-    setSingle((current) => ({ ...current, [key]: value, ...(key === 'application_item_id' ? { amount: itemAmount(value) } : {}) }));
+    setSingle((current) => ({ ...current, [key]: value, error: '', ...(key === 'application_item_id' ? { amount: itemAmount(value) } : {}) }));
   }
 
   function updateRow(index: number, key: keyof BatchCaseRow, value: string) {
-    setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value, ...(key === 'application_item_id' ? { amount: itemAmount(value) } : {}) } : row));
+    setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value, error: '', ...(key === 'application_item_id' ? { amount: itemAmount(value) } : {}) } : row));
   }
 
   function addRows() {
@@ -63,6 +75,31 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
 
   function deleteRow(index: number) {
     setRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
+  }
+
+  function normalizeSelectValue(key: keyof BatchCaseRow, value: string): string {
+    const clean = value.trim();
+    if (!clean) return '';
+    if (key === 'broker_id') {
+      const matched = data.brokers.find((item) => [item.id, item.name, item.full_name, item.code].some((v) => String(v ?? '').trim() === clean));
+      return matched?.id ?? clean;
+    }
+    if (key === 'application_item_id') {
+      const matched = data.applicationItems.find((item) => item.id === clean || item.name === clean);
+      return matched?.id ?? clean;
+    }
+    if (key === 'handler_name') {
+      const matched = data.people.find((item) => item.name === clean || item.display_name === clean);
+      return matched?.name ?? clean;
+    }
+    if (key === 'entry_date' || key === 'application_date') {
+      return parseDateLoose(clean) ?? clean;
+    }
+    if (key === 'amount') {
+      const money = parseMoney(clean);
+      return money === null ? clean : String(money);
+    }
+    return clean;
   }
 
   function pasteToGrid(event: ClipboardEvent<HTMLInputElement | HTMLSelectElement>, rowIndex: number, columnKey: keyof BatchCaseRow) {
@@ -80,11 +117,31 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
           const column = batchColumns[startColumn + colOffset];
           if (!column) return;
           const actualIndex = rowIndex + lineOffset;
-          next[actualIndex] = { ...next[actualIndex], [column.key]: value.trim() };
+          next[actualIndex] = { ...next[actualIndex], [column.key]: normalizeSelectValue(column.key, value), error: '' };
         });
       });
       return next;
     });
+  }
+
+  function normalizeDateField(row: BatchCaseRow, setRow: (row: BatchCaseRow) => void, key: 'entry_date' | 'application_date') {
+    const value = row[key];
+    if (!value) return;
+    const parsed = parseDateLoose(value);
+    if (!parsed) {
+      setRow({ ...row, error: key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。' });
+      pushToast({ type: 'warning', title: key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。' });
+      return;
+    }
+    setRow({ ...row, [key]: parsed, error: '' });
+  }
+
+  function normalizeRowDate(index: number, key: 'entry_date' | 'application_date') {
+    const row = rows[index];
+    if (!row?.[key]) return;
+    const parsed = parseDateLoose(row[key]);
+    setRows((current) => current.map((entry, rowIndex) => rowIndex === index ? { ...entry, [key]: parsed ?? entry[key], error: parsed ? '' : (key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。') } : entry));
+    if (!parsed) pushToast({ type: 'warning', title: key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。' });
   }
 
   function validateRows(inputRows: BatchCaseRow[]): { valid: RegisterCaseInput[]; errors: BatchCaseRow[] } {
@@ -93,12 +150,28 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
     inputRows.forEach((row, index) => {
       const hasAny = Object.entries(row).some(([key, value]) => key !== 'error' && String(value ?? '').trim());
       if (!hasAny) return;
-      const entryDate = parseDateLoose(row.entry_date);
+      const entryDate = row.entry_date ? parseDateLoose(row.entry_date) : null;
       const applicationDate = parseDateLoose(row.application_date);
       const money = parseMoney(row.amount);
-      const requiredMissing = !row.handler_name || !row.broker_id || !row.employer_name || !row.worker_name || !applicationDate || !row.application_item_id;
+      if (!applicationDate) {
+        errors[index].error = DATE_ERROR;
+        return;
+      }
+      if (row.entry_date && !entryDate) {
+        errors[index].error = '入境日期格式不正確，請重新輸入。';
+        return;
+      }
+      const requiredMissing = !row.handler_name || !row.broker_id || !row.employer_name || !row.worker_name || !row.application_item_id;
       if (requiredMissing) {
-        errors[index].error = '必填欄位未完整或日期格式錯誤';
+        errors[index].error = '必填欄位未完整';
+        return;
+      }
+      if (!data.brokers.some((item) => item.id === row.broker_id)) {
+        errors[index].error = '仲介別不正確';
+        return;
+      }
+      if (!data.applicationItems.some((item) => item.id === row.application_item_id)) {
+        errors[index].error = '申請項目不正確';
         return;
       }
       if (money === null) {
@@ -116,6 +189,9 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
         application_item_id: row.application_item_id,
         amount: money
       });
+      errors[index].entry_date = entryDate ?? '';
+      errors[index].application_date = applicationDate;
+      errors[index].amount = String(money);
     });
     return { valid, errors };
   }
@@ -136,6 +212,31 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitOnsite() {
+    const { valid, errors } = validateRows([single]);
+    if (!valid.length) {
+      setSingle(errors[0]);
+      pushToast({ type: 'error', title: '現場申請失敗', message: errors[0]?.error || '請輸入完整資料' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createCases(valid, data, profile, {
+        forceStatus: 'pending_pickup',
+        note: '現場申請 / 待傳真領件',
+        auditAction: '現場申請案件建立'
+      });
+      pushToast({ type: 'success', title: '現場申請已建立', message: '案件已直接帶入傳真/領件。' });
+      setSingle({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() });
+      await reload();
+      onGoFaxPickup?.();
+    } catch (err) {
+      pushToast({ type: 'error', title: '現場申請失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
       setSubmitting(false);
     }
@@ -171,7 +272,8 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
     if (key === 'application_item_id') {
       return <select value={row[key]} onChange={(e) => onChange(key, e.target.value)} onPaste={(e) => pasteToGrid(e, rowIndex, key)}><option value="">請選擇</option>{appItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>;
     }
-    return <input value={String(row[key] ?? '')} onChange={(e) => onChange(key, e.target.value)} onPaste={(e) => pasteToGrid(e, rowIndex, key)} />;
+    const dateKey = key === 'entry_date' || key === 'application_date' ? key : null;
+    return <input value={String(row[key] ?? '')} onChange={(e) => onChange(key, e.target.value)} onBlur={() => dateKey ? (rowIndex === -1 ? normalizeDateField(row, setSingle, dateKey) : normalizeRowDate(rowIndex, dateKey)) : undefined} onPaste={(e) => pasteToGrid(e, rowIndex, key)} />;
   };
 
   return (
@@ -187,11 +289,14 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
           {batchColumns.map((column) => (
             <label key={column.key}>
               <span>{column.label}</span>
-              {renderField(single, updateSingle, column.key)}
+              {renderField(single, updateSingle, column.key, -1)}
             </label>
           ))}
           {single.error ? <div className="inline-error full-span">{single.error}</div> : null}
-          <div className="form-actions full-span"><button className="primary-button" disabled={submitting}>送出登記</button></div>
+          <div className="form-actions full-span">
+            <button className="secondary-button" type="button" onClick={submitOnsite} disabled={submitting}>現場申請</button>
+            <button className="primary-button" disabled={submitting}>送出登記</button>
+          </div>
         </form>
       ) : (
         <section className="card full-width-card">
@@ -201,14 +306,13 @@ export function CaseRegistrationPage({ data, profile, reload }: { data: ArcData;
           </div>
           <div className="table-wrap batch-grid-wrap">
             <table className="data-table batch-table">
-              <thead>
-                <tr>{batchColumns.map((column) => <th key={column.key}>{column.label}</th>)}<th>操作</th></tr>
-              </thead>
+              <thead><tr>{batchColumns.map((column) => <th key={column.key}>{column.label}</th>)}<th>錯誤</th><th>操作</th></tr></thead>
               <tbody>
-                {rows.map((row, rowIndex) => (
-                  <tr key={rowIndex} className={row.error ? 'row-error' : ''}>
-                    {batchColumns.map((column) => <td key={column.key}>{renderField(row, (key, value) => updateRow(rowIndex, key, value), column.key, rowIndex)}</td>)}
-                    <td><button className="danger-link" type="button" onClick={() => deleteRow(rowIndex)}>刪除</button>{row.error ? <div className="cell-error">{row.error}</div> : null}</td>
+                {rows.map((row, index) => (
+                  <tr key={index} className={row.error ? 'row-error' : ''}>
+                    {batchColumns.map((column) => <td key={column.key}>{renderField(row, (key, value) => updateRow(index, key, value), column.key, index)}</td>)}
+                    <td className="cell-error">{row.error}</td>
+                    <td><button className="danger-link" type="button" onClick={() => deleteRow(index)}>刪除</button></td>
                   </tr>
                 ))}
               </tbody>

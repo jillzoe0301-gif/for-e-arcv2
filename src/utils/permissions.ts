@@ -11,8 +11,8 @@ const pageRoles: Record<PageKey, Role[]> = {
   stats: ['admin', 'staff', 'finance'],
   export: ['admin', 'staff', 'finance'],
   brokersAccounts: ['admin', 'finance'],
-  serviceStations: ['admin', 'staff'],
-  taskForces: ['admin', 'staff'],
+  serviceStations: ['admin', 'staff', 'finance'],
+  taskForces: ['admin', 'staff', 'finance'],
   auditLogs: ['admin'],
   settings: ['admin']
 };
@@ -23,7 +23,11 @@ export function canAccessPage(role: Role | undefined, page: PageKey): boolean {
 }
 
 export function canAdjustBalance(role: Role | undefined): boolean {
-  return role === 'admin' || role === 'finance';
+  return role === 'admin';
+}
+
+export function canDeleteData(role: Role | undefined): boolean {
+  return role === 'admin';
 }
 
 export function canDeletePickupRecord(role: Role | undefined): boolean {

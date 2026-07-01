@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { confirmPaymentBatch, correctPaymentItem } from '../api/repository';
+import { confirmPaymentBatch, correctPaymentItem, deletePaymentBatch } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
@@ -8,6 +8,7 @@ import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, PaymentBatch, PaymentBatchItem, Profile } from '../types';
 import { formatDate } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
+import { canDeleteData } from '../utils/permissions';
 
 export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -37,6 +38,23 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     setCorrectedItemId(entry.item.corrected_application_item_id ?? entry.caseRow.application_item_id);
     setCorrectedAmount(String(entry.item.corrected_amount ?? entry.caseRow.amount ?? entry.item.original_amount));
     setCorrectionReason(entry.item.correction_reason ?? '');
+  }
+
+
+  async function removeBatch(batch: PaymentBatch) {
+    if (!canDeleteData(profile?.role)) {
+      pushToast({ type: 'warning', title: '您沒有刪除權限。' });
+      return;
+    }
+    if (!window.confirm('確定要刪除此筆資料嗎？刪除後不可復原。')) return;
+    try {
+      await deletePaymentBatch(batch, data, profile, '財務對帳確認');
+      pushToast({ type: 'success', title: '已刪除財務對帳資料', message: '已同步建立帳戶沖正紀錄。' });
+      setSelectedBatchId('');
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
   }
 
   async function submitCorrection() {
@@ -69,7 +87,8 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     { key: 'account', title: '帳戶名稱', render: (row: PaymentBatch) => data.accounts.find((item) => item.id === row.account_id)?.account_name ?? '' },
     { key: 'count', title: '件數', render: (row: PaymentBatch) => row.case_count },
     { key: 'amount', title: '金額', render: (row: PaymentBatch) => formatMoney(row.total_amount) },
-    { key: 'status', title: '狀態', render: (row: PaymentBatch) => <BatchStatusBadge status={row.status} /> }
+    { key: 'status', title: '狀態', render: (row: PaymentBatch) => <BatchStatusBadge status={row.status} /> },
+    { key: 'delete', title: '刪除', render: (row: PaymentBatch) => canDeleteData(profile?.role) ? <button className="danger-link" onClick={() => removeBatch(row)}>刪除</button> : null }
   ];
 
   const detailColumns = [

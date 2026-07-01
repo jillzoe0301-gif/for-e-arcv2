@@ -6,6 +6,7 @@ import type {
   ArcData,
   AuditLog,
   BankAccount,
+  BatchStatus,
   BrokerCompany,
   ContactRecord,
   DeletedRecord,
@@ -139,7 +140,12 @@ export function statusAfterPayment(item: ApplicationItem | undefined): ArcCase['
   return 'archive_paid';
 }
 
-export async function createCases(inputs: RegisterCaseInput[], data: ArcData, actor: Profile | null): Promise<ArcCase[]> {
+export async function createCases(
+  inputs: RegisterCaseInput[],
+  data: ArcData,
+  actor: Profile | null,
+  options: { forceStatus?: ArcCase['status']; note?: string; auditAction?: string } = {}
+): Promise<ArcCase[]> {
   const rows: Partial<ArcCase>[] = [];
   for (const input of inputs) {
     const broker = data.brokers.find((item) => item.id === input.broker_id);
@@ -153,7 +159,8 @@ export async function createCases(inputs: RegisterCaseInput[], data: ArcData, ac
     rows.push({
       case_no: caseNo as string,
       ...input,
-      status: statusForNewCase(input, appItem),
+      status: options.forceStatus ?? statusForNewCase(input, appItem),
+      note: options.note ?? undefined,
       created_by: actor?.id,
       updated_by: actor?.id
     });
@@ -161,7 +168,7 @@ export async function createCases(inputs: RegisterCaseInput[], data: ArcData, ac
   const { data: inserted, error } = await supabase.from('arc_cases').insert(rows).select('*');
   if (error) throw error;
   await addAudit({
-    action_type: inputs.length > 1 ? '批次新增案件' : '新增案件',
+    action_type: options.auditAction ?? (inputs.length > 1 ? '批次新增案件' : '新增案件'),
     actor_id: actor?.id,
     actor_name: actor?.display_name,
     page_name: '居留案件登記',
@@ -462,7 +469,16 @@ export async function createPickupRecord(params: {
 }) {
   const { caseIds, pickupDate, data, actor } = params;
   if (!caseIds.length) throw new Error('請先選擇要領件的案件。');
-  const selectedPlans = data.faxPickupItems.filter((item) => caseIds.includes(item.case_id) && item.status === 'pending');
+  let selectedPlans = data.faxPickupItems.filter((item) => caseIds.includes(item.case_id) && item.status === 'pending');
+  if (!selectedPlans.length) {
+    const { data: freshPlans, error: freshError } = await supabase
+      .from('fax_pickup_items')
+      .select('*')
+      .in('case_id', caseIds)
+      .eq('status', 'pending');
+    if (freshError) throw freshError;
+    selectedPlans = (freshPlans ?? []) as FaxPickupItem[];
+  }
   if (!selectedPlans.length) throw new Error('找不到預計領件資料。');
   const { data: recordNo, error: rpcError } = await supabase.rpc('next_pickup_record_no', { p_pickup_date: pickupDate });
   if (rpcError) throw rpcError;
@@ -545,13 +561,17 @@ export async function markPickupNotReceived(params: {
 }
 
 export async function deletePickupRecord(record: PickupRecord, reason: string, actor: Profile | null) {
+  assertAdmin(actor);
+  const { data: recordItems } = await supabase.from('pickup_record_items').select('*').eq('record_id', record.id);
   const patch = { deleted_at: new Date().toISOString(), deleted_by: actor?.id, delete_reason: reason };
   const { error } = await supabase.from('pickup_records').update(patch).eq('id', record.id);
   if (error) throw error;
+  const { error: detailError } = await supabase.from('pickup_record_items').delete().eq('record_id', record.id);
+  if (detailError) throw detailError;
   await supabase.from('deleted_records').insert({
     table_name: 'pickup_records',
     record_id: record.id,
-    data: record,
+    data: { record, details: recordItems ?? [] },
     deleted_by: actor?.id,
     deleted_by_name: actor?.display_name
   });
@@ -562,7 +582,12 @@ export async function deletePickupRecord(record: PickupRecord, reason: string, a
     page_name: '傳真/領件',
     record_table: 'pickup_records',
     record_id: record.id,
-    old_data: record,
+    old_data: {
+      record_no: record.record_no,
+      pickup_date: record.pickup_date,
+      case_count: record.case_count,
+      details: recordItems ?? []
+    },
     new_data: patch,
     reason
   });
@@ -590,6 +615,134 @@ export async function softDelete(table: string, row: { id: string; [key: string]
     new_data: patch,
     reason
   });
+}
+
+
+function assertAdmin(actor: Profile | null) {
+  if (actor?.role !== 'admin') throw new Error('您沒有刪除權限。');
+}
+
+export async function deletePaymentBatch(batch: PaymentBatch, data: ArcData, actor: Profile | null, pageName = '財務對帳確認') {
+  assertAdmin(actor);
+  const account = data.accounts.find((item) => item.id === batch.account_id);
+  const relatedCases = data.cases.filter((item) => item.payment_batch_id === batch.id);
+  if (account) {
+    const before = Number(account.current_balance ?? 0);
+    const reverseAmount = Number(batch.total_amount ?? 0);
+    const after = before + reverseAmount;
+    const { error: accountError } = await supabase.from('bank_accounts').update({ current_balance: after, updated_by: actor?.id }).eq('id', account.id);
+    if (accountError) throw accountError;
+    const { error: txnError } = await supabase.from('account_transactions').insert({
+      account_id: account.id,
+      txn_type: 'reverse_delete_payment_batch',
+      amount: reverseAmount,
+      balance_before: before,
+      balance_after: after,
+      ref_table: 'payment_batches',
+      ref_id: batch.id,
+      reason: `刪除繳費批次 ${batch.batch_no} 沖正`,
+      created_by: actor?.id
+    });
+    if (txnError) throw txnError;
+  }
+  const patch = { deleted_at: new Date().toISOString(), updated_by: actor?.id, status: 'cancelled' as BatchStatus };
+  const { error: batchError } = await supabase.from('payment_batches').update(patch).eq('id', batch.id);
+  if (batchError) throw batchError;
+  if (relatedCases.length) {
+    const { error: caseError } = await supabase.from('arc_cases').update({
+      status: 'pending_payment',
+      payment_batch_id: null,
+      payment_date: null,
+      payment_account_id: null,
+      updated_by: actor?.id
+    }).eq('payment_batch_id', batch.id);
+    if (caseError) throw caseError;
+  }
+  await supabase.from('deleted_records').insert({
+    table_name: 'payment_batches',
+    record_id: batch.id,
+    data: { batch, related_case_ids: relatedCases.map((item) => item.id), reverse_amount: batch.total_amount },
+    deleted_by: actor?.id,
+    deleted_by_name: actor?.display_name
+  });
+  await addAudit({
+    action_type: '刪除財務對帳批次',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: pageName,
+    record_table: 'payment_batches',
+    record_id: batch.id,
+    old_data: { batch, relatedCases },
+    new_data: patch,
+    reason: '管理員刪除並建立帳戶沖正紀錄'
+  });
+}
+
+export async function deleteFinanceCase(caseRow: ArcCase, data: ArcData, actor: Profile | null, pageName = '財務查詢') {
+  assertAdmin(actor);
+  const batch = data.batches.find((item) => item.id === caseRow.payment_batch_id);
+  const batchItem = data.batchItems.find((item) => item.case_id === caseRow.id && item.batch_id === caseRow.payment_batch_id);
+  const account = data.accounts.find((item) => item.id === (caseRow.payment_account_id ?? batch?.account_id));
+  const reverseAmount = Number(batchItem?.corrected_amount ?? caseRow.amount ?? 0);
+  if (account && reverseAmount) {
+    const before = Number(account.current_balance ?? 0);
+    const after = before + reverseAmount;
+    const { error: accountError } = await supabase.from('bank_accounts').update({ current_balance: after, updated_by: actor?.id }).eq('id', account.id);
+    if (accountError) throw accountError;
+    const { error: txnError } = await supabase.from('account_transactions').insert({
+      account_id: account.id,
+      txn_type: 'reverse_delete_finance_case',
+      amount: reverseAmount,
+      balance_before: before,
+      balance_after: after,
+      ref_table: 'arc_cases',
+      ref_id: caseRow.id,
+      reason: `刪除財務資料 ${caseRow.case_no} 沖正`,
+      created_by: actor?.id
+    });
+    if (txnError) throw txnError;
+  }
+  if (batch) {
+    const nextCount = Math.max(0, Number(batch.case_count ?? 0) - 1);
+    const nextTotal = Math.max(0, Number(batch.total_amount ?? 0) - reverseAmount);
+    const patch: Record<string, unknown> = { total_amount: nextTotal, case_count: nextCount, updated_by: actor?.id };
+    if (nextCount === 0) {
+      patch.status = 'cancelled';
+      patch.deleted_at = new Date().toISOString();
+    }
+    const { error: batchError } = await supabase.from('payment_batches').update(patch).eq('id', batch.id);
+    if (batchError) throw batchError;
+  }
+  const patch = { deleted_at: new Date().toISOString(), updated_by: actor?.id };
+  const { error } = await supabase.from('arc_cases').update(patch).eq('id', caseRow.id);
+  if (error) throw error;
+  await supabase.from('deleted_records').insert({
+    table_name: 'arc_cases',
+    record_id: caseRow.id,
+    data: { case: caseRow, batch, reverse_amount: reverseAmount },
+    deleted_by: actor?.id,
+    deleted_by_name: actor?.display_name
+  });
+  await addAudit({
+    action_type: '刪除財務資料',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: pageName,
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: { caseRow, batch },
+    new_data: patch,
+    reason: '管理員刪除並建立帳戶沖正紀錄'
+  });
+}
+
+export async function deleteArcCase(caseRow: ArcCase, data: ArcData, actor: Profile | null, pageName = '案件查詢') {
+  assertAdmin(actor);
+  if (caseRow.payment_batch_id || caseRow.payment_account_id) {
+    await deleteFinanceCase(caseRow, data, actor, pageName);
+    return;
+  }
+  await softDelete('arc_cases', caseRow as unknown as { id: string; [key: string]: unknown }, actor, pageName, '管理員刪除案件');
 }
 
 export async function upsertSettingTable<T extends { id?: string }>(table: string, payload: T, actor: Profile | null, pageName: string) {

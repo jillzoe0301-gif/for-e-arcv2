@@ -44,12 +44,12 @@ export function App() {
   function renderPage() {
     switch (currentPage) {
       case 'dashboard': return <DashboardPage data={data} />;
-      case 'registration': return <CaseRegistrationPage data={data} profile={profile} reload={reload} />;
+      case 'registration': return <CaseRegistrationPage data={data} profile={profile} reload={reload} onGoFaxPickup={() => setCurrentPage('faxPickup')} />;
       case 'payment': return <PaymentPage data={data} profile={profile} reload={reload} />;
       case 'financeConfirm': return <FinanceConfirmPage data={data} profile={profile} reload={reload} />;
-      case 'financeSearch': return <FinanceSearchPage data={data} />;
+      case 'financeSearch': return <FinanceSearchPage data={data} profile={profile} reload={reload} />;
       case 'faxPickup': return <FaxPickupPage data={data} profile={profile} reload={reload} />;
-      case 'caseSearch': return <CaseSearchPage data={data} />;
+      case 'caseSearch': return <CaseSearchPage data={data} profile={profile} reload={reload} />;
       case 'stats': return <StatsPage data={data} />;
       case 'export': return <ExportPage data={data} />;
       case 'brokersAccounts': return <BrokersAccountsPage data={data} profile={profile} reload={reload} />;

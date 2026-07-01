@@ -336,3 +336,70 @@ pre { white-space:pre-wrap; word-break:break-word; background:#f6f7f2; padding:1
   .data-table { min-width:760px; }
   .export-card { display:grid; max-width:none; }
 }
+
+/* V13 Formal 修正：全系統畫面字級縮小約 2pt，列印工具另有獨立樣式不受影響 */
+@media screen {
+  body { font-size: 14px; }
+  .page-header h1 { font-size: 25px; }
+  .card h2 { font-size: 17px; }
+  .data-table td { font-size: 13px; }
+  .data-table th { font-size: 12px; }
+  .primary-button, .secondary-button, .danger-button, .ghost-button, .danger-link, .link-button { font-size: 13px; }
+  input, select, textarea { font-size: 13px; }
+  label span, .subtle-text, .payment-summary span { font-size: 12px; }
+  .stat-card strong { font-size: 30px; }
+  .balance-card strong { font-size: 21px; }
+}
+
+input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  min-height: 15px;
+  padding: 0;
+  accent-color: var(--blue);
+}
+
+.checkbox-line input[type="checkbox"] { width: 15px; min-height: 15px; }
+
+.external-link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.external-link-card {
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  min-height: 56px;
+  border: 1px solid #c9ddff;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #f4f8ff;
+  color: var(--blue);
+  font-weight: 900;
+  text-decoration: none;
+}
+.external-link-card:hover { border-color: var(--blue); background: #edf4ff; }
+.external-link-card.disabled { color: var(--muted); background: #f6f7f2; border-color: var(--line); }
+.external-link-card small { font-weight: 700; color: var(--danger); }
+
+.account-balance-strip {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfcf8;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.account-balance-strip h3 { margin: 0 0 10px; color: var(--blue); font-size: 15px; }
+.account-balance-grid.compact { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.balance-card.selected { border-color: #4274D9; box-shadow: 0 0 0 3px rgba(66,116,217,.12); background:#F4F8FF; }
+.selected-balance-text { margin: 10px 0 0; color: var(--blue); font-weight: 900; }
+
+.yearly-month-table .data-table { min-width: 0; }
+.yearly-month-table .data-table th,
+.yearly-month-table .data-table td { padding: 6px 6px; text-align: center; }
+.stats-page .table-wrap { overflow: visible; }
+.stats-page .data-table { table-layout: auto; min-width: 0; }
+.stats-page .data-table th,
+.stats-page .data-table td { white-space: normal; word-break: break-word; }

@@ -113,13 +113,43 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   }
 
   async function singlePickup(caseRow: ArcCase) {
+    const draft = draftFor(caseRow);
     const plan = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
-    if (!plan) {
-      pushToast({ type: 'warning', title: '請先加入預計領件區' });
-      return;
+    try {
+      if (!plan) {
+        if (!draft.receipt_no.trim() || !draft.foreign_no_last5.trim() || !draft.receipt_order.trim()) {
+          pushToast({ type: 'warning', title: '請補齊資料', message: '單筆領件前需填收件編號、外字末五碼、收據順序。' });
+          return;
+        }
+        const order = Number(draft.receipt_order);
+        if (!Number.isInteger(order) || order <= 0) {
+          pushToast({ type: 'warning', title: '收據順序格式錯誤' });
+          return;
+        }
+        await addFaxPickupPlan({
+          caseRow,
+          receiptNo: draft.receipt_no.trim(),
+          foreignNoLast5: draft.foreign_no_last5.trim(),
+          receiptOrder: order,
+          faxDate: draft.fax_date || todayTaipei(),
+          expectedPickupDate: draft.expected_pickup_date || nextWeekThursday(),
+          data,
+          actor: profile
+        });
+        const pickupDate = draft.expected_pickup_date || nextWeekThursday();
+        await createPickupRecord({ caseIds: [caseRow.id], pickupDate, data, actor: profile });
+        pushToast({ type: 'success', title: '單筆領件已建立' });
+        setPlanDate(pickupDate);
+        await reload();
+        return;
+      }
+      setPlanDate(plan.expected_pickup_date);
+      await createPickupRecord({ caseIds: [caseRow.id], pickupDate: plan.expected_pickup_date, data, actor: profile });
+      pushToast({ type: 'success', title: '單筆領件已建立' });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '單筆領件失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     }
-    setPlanDate(plan.expected_pickup_date);
-    await createRecordForPlanIds([plan.id]);
   }
 
   function printableRows() {
@@ -144,9 +174,8 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
 
   async function confirmDeleteRecord() {
     if (!deleteTarget) return;
-    if (!deleteReason.trim()) return pushToast({ type: 'warning', title: '請輸入刪除原因' });
     try {
-      await deletePickupRecord(deleteTarget, deleteReason.trim(), profile);
+      await deletePickupRecord(deleteTarget, deleteReason.trim() || '管理員刪除傳真領件紀錄', profile);
       pushToast({ type: 'success', title: '已刪除傳真領件紀錄' });
       setDeleteTarget(null);
       setDeleteReason('');
@@ -210,7 +239,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
           <strong className="red-reminder">收據順序請寫在領件單右上角!</strong>
         </div>
         <div className="search-toolbar">
-          <SearchInput id="faxPickupSearch" value={keyword} onCommit={setKeyword} placeholder="雇主 / 工人 / 團號搜尋" />
+          <SearchInput id="faxPickupSearch" value={keyword} onCommit={setKeyword} placeholder="雇主 / 工人 / 團號 / 收件編號 / 外字五碼搜尋" />
         </div>
         <DataTable columns={readyColumns} rows={readyCases} rowKey={(row) => row.id} emptyText="目前沒有待傳真/領件案件" />
       </section>

@@ -35,6 +35,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   const selectedBrokerIds = Array.from(new Set(selectedCases.map((item) => item.broker_id)));
   const filteredAccounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === brokerId);
   const total = selectedCases.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+  const selectedAccount = data.accounts.find((item) => item.id === accountId);
 
   function toggle(row: ArcCase) {
     const nextSelected = selectedIds.includes(row.id) ? selectedIds.filter((id) => id !== row.id) : [...selectedIds, row.id];
@@ -140,6 +141,23 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
             <button key={broker.id} className="secondary-button" type="button" onClick={() => selectBrokerCases(broker.id)}>{broker.name} 一鍵勾選</button>
           ))}
           <button className="ghost-button" type="button" onClick={clearSelected}>一鍵取消</button>
+        </div>
+
+        <div className="account-balance-strip">
+          <h3>仲介銀行帳戶餘額</h3>
+          <div className="account-balance-grid compact">
+            {data.accounts.filter((account) => !brokerId || account.broker_id === brokerId).map((account) => {
+              const broker = data.brokers.find((item) => item.id === account.broker_id);
+              return (
+                <div className={`balance-card ${account.id === accountId ? 'selected' : ''}`} key={account.id}>
+                  <span>{broker?.name}｜{account.account_name}</span>
+                  <strong>{formatMoney(account.current_balance)}</strong>
+                  <small>後五碼：{account.account_last5 ?? account.account_no.slice(-5)}</small>
+                </div>
+              );
+            })}
+          </div>
+          {selectedAccount ? <p className="selected-balance-text">目前選擇帳戶餘額：{formatMoney(selectedAccount.current_balance)} 元</p> : null}
         </div>
         <div className="payment-panel">
           <label><span>繳費日期</span><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} /></label>

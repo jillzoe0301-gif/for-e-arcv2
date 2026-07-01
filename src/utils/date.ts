@@ -16,10 +16,38 @@ export function taipeiWeekday(): number {
   return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(label);
 }
 
+function cleanDateText(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\t\r\n]/g, '')
+    .trim();
+}
+
+function normalizeYear(yearText: string): string {
+  const year = Number(yearText);
+  if (yearText.length <= 3 || year < 1911) return String(year + 1911);
+  return String(year);
+}
+
 export function parseDateLoose(value: unknown): string | null {
-  const raw = String(value ?? '').trim();
+  const raw = cleanDateText(value);
   if (!raw) return null;
-  const normalized = raw.normalize('NFKC').replace(/[.\/]/g, '-');
+
+  const chinese = raw.match(/^民國\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?$/);
+  if (chinese) {
+    const y = normalizeYear(chinese[1]);
+    const m = chinese[2].padStart(2, '0');
+    const d = chinese[3].padStart(2, '0');
+    return isValidDateParts(y, m, d) ? `${y}-${m}-${d}` : null;
+  }
+
+  const normalized = raw
+    .replace(/^民國\s*/, '')
+    .replace(/[年月/.]/g, '-')
+    .replace(/日$/g, '')
+    .replace(/--+/g, '-');
+
   const compact = normalized.replace(/-/g, '');
   if (/^\d{8}$/.test(compact)) {
     const y = compact.slice(0, 4);
@@ -27,9 +55,16 @@ export function parseDateLoose(value: unknown): string | null {
     const d = compact.slice(6, 8);
     if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
   }
-  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (/^\d{7}$/.test(compact)) {
+    const y = normalizeYear(compact.slice(0, 3));
+    const m = compact.slice(3, 5);
+    const d = compact.slice(5, 7);
+    if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
+  }
+
+  const match = normalized.match(/^(\d{2,4})-(\d{1,2})-(\d{1,2})$/);
   if (match) {
-    const y = match[1];
+    const y = normalizeYear(match[1]);
     const m = match[2].padStart(2, '0');
     const d = match[3].padStart(2, '0');
     if (isValidDateParts(y, m, d)) return `${y}-${m}-${d}`;
@@ -41,6 +76,7 @@ function isValidDateParts(y: string, m: string, d: string): boolean {
   const year = Number(y);
   const month = Number(m);
   const day = Number(d);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
   if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return false;
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
