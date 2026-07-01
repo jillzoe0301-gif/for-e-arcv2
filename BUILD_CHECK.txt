@@ -1,0 +1,6 @@
+Build check completed in container:
+
+npm install --ignore-scripts
+npm run build
+
+Result: success
