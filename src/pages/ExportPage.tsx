@@ -114,7 +114,7 @@ export function ExportPage({ data }: { data: ArcData }) {
   }
 
   return (
-    <div className="page-content">
+    <div className="page-content export-page">
       <PageHeader title="匯出資料" description="可依年份、月份、申請項目與人員篩選後匯出 CSV。" />
       <section className="card export-card full-width-card">
         <div className="export-filter-grid">
@@ -123,8 +123,8 @@ export function ExportPage({ data }: { data: ArcData }) {
           <label><span>月份</span><select value={month} onChange={(e) => setMonth(e.target.value)}><option value="">全部月份</option>{monthOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
           <label><span>申請項目</span><select value={applicationItemId} onChange={(e) => setApplicationItemId(e.target.value)}><option value="">全部項目</option>{data.applicationItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label><span>人員 / 承辦</span><select value={handlerName} onChange={(e) => setHandlerName(e.target.value)}><option value="">全部人員</option>{data.people.filter((item) => item.show_as_handler).map((item) => <option key={item.id} value={item.name}>{item.display_name}</option>)}</select></label>
+          <div className="export-action"><button className="primary-button" onClick={exportData}>匯出 CSV</button></div>
         </div>
-        <button className="primary-button" onClick={exportData}>匯出 CSV</button>
       </section>
     </div>
   );

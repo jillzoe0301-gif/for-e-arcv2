@@ -7,6 +7,7 @@ import { todayTaipei, parseDateLoose } from '../utils/date';
 import { parseMoney } from '../utils/number';
 
 const DATE_ERROR = '申請日期格式不正確，請重新輸入。';
+const ENTRY_DATE_ERROR = '入境日格式不正確，請重新輸入。';
 
 const emptyRow: BatchCaseRow = {
   handler_name: '',
@@ -32,7 +33,7 @@ const batchColumns: Array<{ key: keyof BatchCaseRow; label: string; type?: strin
   { key: 'amount', label: '金額' }
 ];
 
-type BatchFill = Pick<BatchCaseRow, 'handler_name' | 'broker_id' | 'employer_name' | 'application_date'>;
+type BatchFill = Pick<BatchCaseRow, 'handler_name' | 'broker_id' | 'employer_name' | 'entry_date' | 'application_date'>;
 
 export function CaseRegistrationPage({
   data,
@@ -53,7 +54,7 @@ export function CaseRegistrationPage({
   const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [single, setSingle] = useState<BatchCaseRow>(() => makeDefaultRow());
   const [rows, setRows] = useState<BatchCaseRow[]>(() => Array.from({ length: 10 }, makeDefaultRow));
-  const [batchFill, setBatchFill] = useState<BatchFill>({ handler_name: firstHandler, broker_id: firstBroker, employer_name: '', application_date: todayTaipei() });
+  const [batchFill, setBatchFill] = useState<BatchFill>({ handler_name: firstHandler, broker_id: firstBroker, employer_name: '', entry_date: '', application_date: todayTaipei() });
   const [submitting, setSubmitting] = useState(false);
 
   const handlers = useMemo(() => data.people.filter((item) => item.is_enabled && item.show_as_handler), [data.people]);
@@ -92,7 +93,12 @@ export function CaseRegistrationPage({
   }
 
   function applyBatchFill() {
+    const parsedEntryDate = batchFill.entry_date ? parseDateLoose(batchFill.entry_date) : '';
     const parsedDate = batchFill.application_date ? parseDateLoose(batchFill.application_date) : '';
+    if (batchFill.entry_date && !parsedEntryDate) {
+      pushToast({ type: 'warning', title: ENTRY_DATE_ERROR });
+      return;
+    }
     if (batchFill.application_date && !parsedDate) {
       pushToast({ type: 'warning', title: DATE_ERROR });
       return;
@@ -102,10 +108,17 @@ export function CaseRegistrationPage({
       handler_name: batchFill.handler_name || row.handler_name,
       broker_id: batchFill.broker_id || row.broker_id,
       employer_name: batchFill.employer_name || row.employer_name,
+      entry_date: parsedEntryDate || row.entry_date,
       application_date: parsedDate || row.application_date,
       error: ''
     })));
-    if (parsedDate) setBatchFill((current) => ({ ...current, application_date: parsedDate }));
+    if (parsedEntryDate || parsedDate) {
+      setBatchFill((current) => ({
+        ...current,
+        entry_date: parsedEntryDate || current.entry_date,
+        application_date: parsedDate || current.application_date
+      }));
+    }
     pushToast({ type: 'success', title: '已一鍵填入批次欄位' });
   }
 
@@ -161,8 +174,8 @@ export function CaseRegistrationPage({
     if (!value) return;
     const parsed = parseDateLoose(value);
     if (!parsed) {
-      setRow({ ...row, error: key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。' });
-      pushToast({ type: 'warning', title: key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。' });
+      setRow({ ...row, error: key === 'application_date' ? DATE_ERROR : ENTRY_DATE_ERROR });
+      pushToast({ type: 'warning', title: key === 'application_date' ? DATE_ERROR : ENTRY_DATE_ERROR });
       return;
     }
     setRow({ ...row, [key]: parsed, error: '' });
@@ -172,8 +185,8 @@ export function CaseRegistrationPage({
     const row = rows[index];
     if (!row?.[key]) return;
     const parsed = parseDateLoose(row[key]);
-    setRows((current) => current.map((entry, rowIndex) => rowIndex === index ? { ...entry, [key]: parsed ?? entry[key], error: parsed ? '' : (key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。') } : entry));
-    if (!parsed) pushToast({ type: 'warning', title: key === 'application_date' ? DATE_ERROR : '日期格式不正確，請重新輸入。' });
+    setRows((current) => current.map((entry, rowIndex) => rowIndex === index ? { ...entry, [key]: parsed ?? entry[key], error: parsed ? '' : (key === 'application_date' ? DATE_ERROR : ENTRY_DATE_ERROR) } : entry));
+    if (!parsed) pushToast({ type: 'warning', title: key === 'application_date' ? DATE_ERROR : ENTRY_DATE_ERROR });
   }
 
   function validateRows(inputRows: BatchCaseRow[]): { valid: RegisterCaseInput[]; errors: BatchCaseRow[] } {
@@ -190,7 +203,7 @@ export function CaseRegistrationPage({
         return;
       }
       if (row.entry_date && !entryDate) {
-        errors[index].error = '入境日期格式不正確，請重新輸入。';
+        errors[index].error = ENTRY_DATE_ERROR;
         return;
       }
       const requiredMissing = !row.handler_name || !row.broker_id || !row.employer_name || !row.worker_name || !row.application_item_id;
@@ -305,7 +318,15 @@ export function CaseRegistrationPage({
       return <select value={row[key]} onChange={(e) => onChange(key, e.target.value)} onPaste={(e) => pasteToGrid(e, rowIndex, key)}><option value="">請選擇</option>{appItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>;
     }
     const dateKey = key === 'entry_date' || key === 'application_date' ? key : null;
-    return <input value={String(row[key] ?? '')} onChange={(e) => onChange(key, e.target.value)} onBlur={() => dateKey ? (rowIndex === -1 ? normalizeDateField(row, setSingle, dateKey) : normalizeRowDate(rowIndex, dateKey)) : undefined} onPaste={(e) => pasteToGrid(e, rowIndex, key)} />;
+    if (dateKey) {
+      return (
+        <div className="date-input-row">
+          <input value={String(row[key] ?? '')} onChange={(e) => onChange(key, e.target.value)} onBlur={() => rowIndex === -1 ? normalizeDateField(row, setSingle, dateKey) : normalizeRowDate(rowIndex, dateKey)} onPaste={(e) => pasteToGrid(e, rowIndex, key)} />
+          <button className="mini secondary-button" type="button" onClick={() => onChange(key, todayTaipei())}>今天</button>
+        </div>
+      );
+    }
+    return <input value={String(row[key] ?? '')} onChange={(e) => onChange(key, e.target.value)} onPaste={(e) => pasteToGrid(e, rowIndex, key)} />;
   };
 
   return (
@@ -337,7 +358,8 @@ export function CaseRegistrationPage({
             <label><span>一鍵承辦</span><select value={batchFill.handler_name} onChange={(e) => setBatchFill((current) => ({ ...current, handler_name: e.target.value }))}><option value="">不變更</option>{handlers.map((item) => <option key={item.id} value={item.name}>{item.display_name}</option>)}</select></label>
             <label><span>一鍵仲介</span><select value={batchFill.broker_id} onChange={(e) => setBatchFill((current) => ({ ...current, broker_id: e.target.value }))}><option value="">不變更</option>{brokers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label><span>一鍵雇主</span><input value={batchFill.employer_name} onChange={(e) => setBatchFill((current) => ({ ...current, employer_name: e.target.value }))} /></label>
-            <label><span>一鍵申請日期</span><input value={batchFill.application_date} onChange={(e) => setBatchFill((current) => ({ ...current, application_date: e.target.value }))} onBlur={() => setBatchFill((current) => ({ ...current, application_date: parseDateLoose(current.application_date) ?? current.application_date }))} /></label>
+            <label><span>一鍵入境日</span><div className="date-input-row"><input value={batchFill.entry_date} onChange={(e) => setBatchFill((current) => ({ ...current, entry_date: e.target.value }))} onBlur={() => setBatchFill((current) => ({ ...current, entry_date: parseDateLoose(current.entry_date) ?? current.entry_date }))} /><button className="mini secondary-button" type="button" onClick={() => setBatchFill((current) => ({ ...current, entry_date: todayTaipei() }))}>今天</button></div></label>
+            <label><span>一鍵申請日期</span><div className="date-input-row"><input value={batchFill.application_date} onChange={(e) => setBatchFill((current) => ({ ...current, application_date: e.target.value }))} onBlur={() => setBatchFill((current) => ({ ...current, application_date: parseDateLoose(current.application_date) ?? current.application_date }))} /><button className="mini secondary-button" type="button" onClick={() => setBatchFill((current) => ({ ...current, application_date: todayTaipei() }))}>今天</button></div></label>
             <button className="secondary-button" type="button" onClick={applyBatchFill}>一鍵輸入</button>
           </div>
           <div className="toolbar-row">

@@ -308,8 +308,11 @@ input:focus, select:focus, textarea:focus { border-color:var(--blue); box-shadow
 .toast-info { border-color:#c9ddff; }
 
 .json-editor { min-height:320px; font-family:"Cascadia Code", Consolas, monospace; }
-.export-card { display:flex; gap:12px; align-items:end; max-width:580px; }
-.export-card label { flex:1; }
+.export-page { width: 100%; max-width: none; }
+.export-card { display:grid; gap:12px; align-items:end; width:100%; max-width:none; }
+.export-card label { min-width:0; }
+.export-action { display:flex; align-items:flex-end; min-height:40px; }
+.export-action .primary-button { width:100%; min-height:40px; }
 pre { white-space:pre-wrap; word-break:break-word; background:#f6f7f2; padding:10px; border-radius:10px; max-width:520px; }
 
 @media (max-width: 1100px) {
@@ -407,16 +410,26 @@ input[type="checkbox"] {
 .batch-fill-panel,
 .export-filter-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   align-items: end;
   margin-bottom: 12px;
   padding: 12px;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #fbfcf8;
 }
 .batch-fill-panel button { min-height: 38px; }
+.date-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.date-input-row input { min-width: 0; }
+.date-input-row .mini { min-height: 34px; padding: 5px 8px; }
+.batch-table .date-input-row { min-width: 132px; }
 .copy-text-button {
   border: 0;
   background: transparent;
@@ -440,4 +453,5 @@ input[type="checkbox"] {
 @media (max-width: 760px) {
   .batch-fill-panel,
   .export-filter-grid { grid-template-columns: 1fr; }
+  .export-action .primary-button { width: auto; }
 }
