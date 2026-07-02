@@ -44,7 +44,7 @@ export function App() {
 
   function renderPage() {
     switch (currentPage) {
-      case 'dashboard': return <DashboardPage data={data} />;
+      case 'dashboard': return <DashboardPage data={data} profile={profile} reload={reload} />;
       case 'registration': return <CaseRegistrationPage data={data} profile={profile} reload={reload} onGoFaxPickup={() => setCurrentPage('faxPickup')} />;
       case 'payment': return <PaymentPage data={data} profile={profile} reload={reload} />;
       case 'financeConfirm': return <FinanceConfirmPage data={data} profile={profile} reload={reload} />;
@@ -59,7 +59,7 @@ export function App() {
       case 'taskForces': return <ContactListPage title="專勤隊聯絡資訊" description="專勤隊聯絡資料，可在系統設定維護。" contacts={data.taskForces} />;
       case 'auditLogs': return <AuditLogsPage data={data} />;
       case 'settings': return <SettingsPage data={data} profile={profile} reload={reload} />;
-      default: return <DashboardPage data={data} />;
+      default: return <DashboardPage data={data} profile={profile} reload={reload} />;
     }
   }
 

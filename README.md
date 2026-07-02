@@ -241,3 +241,12 @@ git add -A
 git commit -m "update ARC V13 V28 icons reminders announcements"
 git push origin main
 ```
+
+
+## V29 更新
+
+- 總覽提醒事項移除 icon 與 icon 佔位，週一繳費、週二傳真、週四領件與乾坤/灃禾繳費提醒皆無 icon。
+- 總覽新增可直接修改的公告事項區塊，行政與管理員可編輯公告日期與公告內容。
+- 公告修改會透過 `upsertAnnouncement` 寫入操作紀錄，保留原公告日期/內容與新公告日期/內容。
+- ARC LOGO CSS 提升字重、字距、漸層與淡陰影質感。
+- 本次未新增資料表；若已執行 V28 公告事項 SQL，不需再跑新的 Supabase SQL。

@@ -810,9 +810,18 @@ export async function upsertAnnouncement(payload: Partial<AnnouncementItem>, act
     updated_by_name: actor?.display_name
   } as Record<string, unknown>;
   const isNew = !payload.id;
+  let oldData: AnnouncementItem | null = null;
   if (isNew) {
     normalized.created_by = actor?.id;
     normalized.created_by_name = actor?.display_name;
+  } else {
+    const { data: existing, error: existingError } = await supabase
+      .from('announcement_items')
+      .select('*')
+      .eq('id', payload.id)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    oldData = existing as AnnouncementItem | null;
   }
   const query = isNew
     ? supabase.from('announcement_items').insert(normalized).select('*').single()
@@ -826,8 +835,18 @@ export async function upsertAnnouncement(payload: Partial<AnnouncementItem>, act
     page_name: '公告事項設定',
     record_table: 'announcement_items',
     record_id: (data as { id: string }).id,
-    old_data: isNew ? undefined : payload,
-    new_data: data
+    old_data: oldData ? {
+      原公告日期: oldData.start_date,
+      原公告標題: oldData.title,
+      原公告內容: oldData.content,
+      原始資料: oldData
+    } : undefined,
+    new_data: {
+      新公告日期: (data as AnnouncementItem).start_date,
+      新公告標題: (data as AnnouncementItem).title,
+      新公告內容: (data as AnnouncementItem).content,
+      新資料: data
+    }
   });
   return data as AnnouncementItem;
 }
