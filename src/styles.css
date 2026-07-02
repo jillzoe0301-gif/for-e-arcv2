@@ -931,3 +931,108 @@ input[type="checkbox"] {
 .finance-detail-head-rich > div strong {
   word-break: break-word;
 }
+
+/* V37.4 財務查詢批次明細版面修正：批次資訊改為整排顯示 */
+.finance-query-page .finance-batch-card {
+  width: 100%;
+}
+.finance-query-page .finance-batch-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 14px;
+}
+.finance-query-page .finance-batch-title {
+  grid-column: 1;
+  grid-row: 1;
+  margin-bottom: 0;
+  align-self: center;
+}
+.finance-query-page .finance-batch-meta {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+.finance-query-page .finance-batch-meta span {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 128px;
+  min-width: 118px;
+  max-width: none;
+  padding: 8px 10px;
+}
+.finance-query-page .finance-batch-summary > .danger-button {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  align-self: center;
+  width: auto;
+  min-width: 86px;
+}
+.finance-query-page .finance-batch-detail {
+  padding: 0 14px 14px;
+  width: 100%;
+}
+.finance-query-page .finance-batch-detail .table-wrap {
+  width: 100%;
+  max-width: none;
+  overflow-x: auto;
+}
+.finance-query-page .finance-batch-detail .data-table {
+  min-width: 1280px;
+}
+.finance-query-page .finance-batch-detail .data-table th,
+.finance-query-page .finance-batch-detail .data-table td {
+  vertical-align: middle;
+}
+.finance-query-page .finance-batch-detail .data-table th:not(:nth-last-child(2)),
+.finance-query-page .finance-batch-detail .data-table td:not(:nth-last-child(2)) {
+  white-space: nowrap;
+}
+.finance-query-page .finance-batch-detail .data-table th:nth-last-child(2),
+.finance-query-page .finance-batch-detail .data-table td:nth-last-child(2) {
+  min-width: 220px;
+}
+
+@media (max-width: 1180px) {
+  .finance-query-page .finance-batch-summary {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+  }
+  .finance-query-page .finance-batch-title {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .finance-query-page .finance-batch-summary > .danger-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .finance-query-page .finance-batch-meta {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .finance-query-page .finance-batch-summary {
+    grid-template-columns: 1fr;
+  }
+  .finance-query-page .finance-batch-title,
+  .finance-query-page .finance-batch-meta,
+  .finance-query-page .finance-batch-summary > .danger-button {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .finance-query-page .finance-batch-summary > .danger-button {
+    justify-self: start;
+  }
+  .finance-query-page .finance-batch-meta span {
+    flex: 1 1 150px;
+  }
+}
