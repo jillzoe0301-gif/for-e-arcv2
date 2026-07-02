@@ -14,7 +14,8 @@ const pageRoles: Record<PageKey, Role[]> = {
   serviceStations: ['admin', 'staff', 'finance'],
   taskForces: ['admin', 'staff', 'finance'],
   auditLogs: ['admin'],
-  settings: ['admin']
+  settings: ['admin'],
+  announcements: ['admin', 'staff']
 };
 
 export function canAccessPage(role: Role | undefined, page: PageKey): boolean {
@@ -32,4 +33,8 @@ export function canDeleteData(role: Role | undefined): boolean {
 
 export function canDeletePickupRecord(role: Role | undefined): boolean {
   return role === 'admin';
+}
+
+export function canManageAnnouncements(role: Role | undefined): boolean {
+  return role === 'admin' || role === 'staff';
 }

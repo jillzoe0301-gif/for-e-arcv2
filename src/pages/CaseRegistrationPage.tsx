@@ -1,5 +1,6 @@
 import { ClipboardEvent, FormEvent, useMemo, useState } from 'react';
 import { createCases } from '../api/repository';
+import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../context/ToastContext';
 import type { ArcData, BatchCaseRow, Profile, RegisterCaseInput } from '../types';
@@ -332,6 +333,7 @@ export function CaseRegistrationPage({
   return (
     <div className="page-content">
       <PageHeader title="居留案件登記" description="單筆 / 批次送件；不同仲介可在同一批登記，每列依自己的仲介產生案件編號。" />
+      <AnnouncementBanner items={data.announcements} page="居留案件登記" />
       <div className="tabs">
         <button className={mode === 'single' ? 'active' : ''} onClick={() => setMode('single')}>單筆案件登記</button>
         <button className={mode === 'batch' ? 'active' : ''} onClick={() => setMode('batch')}>批次送件</button>

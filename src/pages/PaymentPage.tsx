@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { cancelCasePayment, createPaymentBatch, deleteArcCase, restoreCaseToPayment } from '../api/repository';
+import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
@@ -157,6 +158,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   return (
     <div className="page-content">
       <PageHeader title="居留證繳費" description="待繳案件依仲介分開；同一批繳費只能選同一仲介。" />
+      <AnnouncementBanner items={data.announcements} page="居留證繳費" />
       <section className="card full-width-card">
         <div className="search-toolbar">
           <SearchInput id="pendingPaymentSearch" value={keyword} onCommit={setKeyword} placeholder="搜尋待繳案件：雇主、工人、團號、案件編號" />

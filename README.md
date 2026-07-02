@@ -210,3 +210,34 @@ git push origin main
 ```sql
 -- 執行 supabase/migrations/202607010002_arc_v13_formal_update.sql
 ```
+
+## V28 更新：Icon、提醒事項、公告事項
+
+本版新增與調整：
+
+- 將系統 icon 統一放入 `public/icons/`，由 `src/utils/icons.tsx` 的 `iconMap` 統一讀取。
+- 左側選單、總覽卡片、提醒事項、公告事項、系統設定分類項目改用新 icon。
+- 提醒事項改為精緻卡片式設計，仍以 Asia/Taipei 判斷週一 / 週二 / 週四的「今天」狀態。
+- 新增公告事項功能，公告會顯示在總覽、居留案件登記、居留證繳費頁面上方。
+- 新增「公告事項」左側入口，行政與管理員可新增、修改、停用、刪除公告；其他角色僅可查看公告。
+- 公告異動會寫入 `audit_logs`，刪除走軟刪除與 `deleted_records`。
+
+### Supabase SQL
+
+V28 新增公告事項資料表，請先在 Supabase SQL Editor 執行：
+
+```txt
+supabase/migrations/202607020004_arc_v13_v28_announcements.sql
+```
+
+### Vercel / GitHub
+
+建議使用完整包覆蓋根目錄，確認根目錄存在 `package.json`、`src/`、`public/icons/` 後再執行：
+
+```bash
+npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
+npm run build
+git add -A
+git commit -m "update ARC V13 V28 icons reminders announcements"
+git push origin main
+```

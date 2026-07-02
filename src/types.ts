@@ -14,7 +14,8 @@ export type PageKey =
   | 'serviceStations'
   | 'taskForces'
   | 'auditLogs'
-  | 'settings';
+  | 'settings'
+  | 'announcements';
 
 export type CaseStatus =
   | 'pending_payment'
@@ -264,6 +265,28 @@ export interface ContactRecord {
   is_enabled: boolean;
 }
 
+
+export type AnnouncementPageName = '總覽' | '居留案件登記' | '居留證繳費';
+
+export interface AnnouncementItem {
+  id: string;
+  title: string;
+  content: string;
+  icon?: string | null;
+  is_enabled: boolean;
+  is_pinned: boolean;
+  display_pages: AnnouncementPageName[];
+  start_date?: string | null;
+  end_date?: string | null;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  updated_by?: string | null;
+  updated_by_name?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+}
+
 export interface ArcSetting {
   id: string;
   setting_group: string;
@@ -291,6 +314,7 @@ export interface ArcData {
   serviceStations: ContactRecord[];
   taskForces: ContactRecord[];
   settings: ArcSetting[];
+  announcements: AnnouncementItem[];
 }
 
 export interface RegisterCaseInput {

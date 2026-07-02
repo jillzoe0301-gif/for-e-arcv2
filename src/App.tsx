@@ -17,6 +17,7 @@ import { BrokersAccountsPage } from './pages/BrokersAccountsPage';
 import { ContactListPage } from './pages/ContactListPage';
 import { AuditLogsPage } from './pages/AuditLogsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { AnnouncementsPage } from './pages/AnnouncementsPage';
 import type { PageKey } from './types';
 import { canAccessPage } from './utils/permissions';
 
@@ -52,6 +53,7 @@ export function App() {
       case 'caseSearch': return <CaseSearchPage data={data} profile={profile} reload={reload} />;
       case 'stats': return <StatsPage data={data} />;
       case 'export': return <ExportPage data={data} />;
+      case 'announcements': return <AnnouncementsPage data={data} profile={profile} reload={reload} />;
       case 'brokersAccounts': return <BrokersAccountsPage data={data} profile={profile} reload={reload} />;
       case 'serviceStations': return <ContactListPage title="移民署服務站" description="移民署服務站聯絡資料，可在系統設定維護。" contacts={data.serviceStations} />;
       case 'taskForces': return <ContactListPage title="專勤隊聯絡資訊" description="專勤隊聯絡資料，可在系統設定維護。" contacts={data.taskForces} />;

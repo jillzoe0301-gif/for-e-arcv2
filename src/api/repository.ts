@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import type {
   AccountTransaction,
+  AnnouncementItem,
   ApplicationItem,
   ArcCase,
   ArcData,
@@ -40,12 +41,23 @@ export const emptyArcData: ArcData = {
   deletedRecords: [],
   serviceStations: [],
   taskForces: [],
-  settings: []
+  settings: [],
+  announcements: []
 };
 
 async function selectAll<T>(table: string, order = 'created_at', ascending = false): Promise<T[]> {
   const { data, error } = await supabase.from(table).select('*').order(order, { ascending });
   if (error) throw error;
+  return (data ?? []) as T[];
+}
+
+async function selectOptional<T>(table: string, order = 'created_at', ascending = false): Promise<T[]> {
+  const { data, error } = await supabase.from(table).select('*').order(order, { ascending });
+  if (error) {
+    const message = `${error.message ?? ''} ${error.code ?? ''}`;
+    if (message.includes('does not exist') || message.includes('PGRST205') || message.includes('42P01')) return [];
+    throw error;
+  }
   return (data ?? []) as T[];
 }
 
@@ -68,7 +80,8 @@ export async function loadArcData(): Promise<ArcData> {
     deletedRecords,
     serviceStations,
     taskForces,
-    settings
+    settings,
+    announcements
   ] = await Promise.all([
     selectAll<Profile>('profiles', 'display_name', true),
     selectAll<PersonOption>('person_options', 'name', true),
@@ -87,7 +100,8 @@ export async function loadArcData(): Promise<ArcData> {
     selectAll<DeletedRecord>('deleted_records', 'deleted_at', false),
     selectAll<ContactRecord>('immigration_service_stations', 'name', true),
     selectAll<ContactRecord>('task_force_contacts', 'name', true),
-    selectAll('arc_settings', 'setting_group', true)
+    selectAll('arc_settings', 'setting_group', true),
+    selectOptional<AnnouncementItem>('announcement_items', 'created_at', false)
   ]);
   return {
     profiles,
@@ -107,7 +121,8 @@ export async function loadArcData(): Promise<ArcData> {
     deletedRecords,
     serviceStations,
     taskForces,
-    settings: settings as never
+    settings: settings as never,
+    announcements: announcements as AnnouncementItem[]
   };
 }
 
@@ -778,6 +793,48 @@ export async function deleteArcCase(caseRow: ArcCase, data: ArcData, actor: Prof
   }, async () => {
     await softDelete('arc_cases', caseRow as unknown as { id: string; [key: string]: unknown }, actor, pageName, '管理員刪除案件');
   });
+}
+
+
+export function canManageAnnouncement(actor: Profile | null) {
+  return actor?.role === 'admin' || actor?.role === 'staff';
+}
+
+export async function upsertAnnouncement(payload: Partial<AnnouncementItem>, actor: Profile | null) {
+  if (!canManageAnnouncement(actor)) throw new Error('您沒有修改公告事項的權限。');
+  const normalized = {
+    ...payload,
+    icon: payload.icon || '公告事項',
+    display_pages: payload.display_pages?.length ? payload.display_pages : ['總覽'],
+    updated_by: actor?.id,
+    updated_by_name: actor?.display_name
+  } as Record<string, unknown>;
+  const isNew = !payload.id;
+  if (isNew) {
+    normalized.created_by = actor?.id;
+    normalized.created_by_name = actor?.display_name;
+  }
+  const query = isNew
+    ? supabase.from('announcement_items').insert(normalized).select('*').single()
+    : supabase.from('announcement_items').update(normalized).eq('id', payload.id).select('*').single();
+  const { data, error } = await query;
+  if (error) throw error;
+  await addAudit({
+    action_type: isNew ? '公告事項新增' : '公告事項修改',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '公告事項設定',
+    record_table: 'announcement_items',
+    record_id: (data as { id: string }).id,
+    old_data: isNew ? undefined : payload,
+    new_data: data
+  });
+  return data as AnnouncementItem;
+}
+
+export async function deleteAnnouncement(row: AnnouncementItem, actor: Profile | null) {
+  if (!canManageAnnouncement(actor)) throw new Error('您沒有修改公告事項的權限。');
+  await softDelete('announcement_items', row as unknown as { id: string; [key: string]: unknown }, actor, '公告事項設定', '刪除公告事項');
 }
 
 export async function upsertSettingTable<T extends { id?: string }>(table: string, payload: T, actor: Profile | null, pageName: string) {

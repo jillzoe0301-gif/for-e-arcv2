@@ -7,25 +7,26 @@ import { SearchInput } from '../components/SearchInput';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 import type { ApplicationItem, ArcData, BankAccount, BrokerCompany, ContactRecord, FeeSetting, PersonOption, Profile, Role } from '../types';
+import { IconImage } from '../utils/icons';
 import { formatMoney, parseMoney } from '../utils/number';
 import { rowMatchesKeyword } from '../utils/search';
 import { roleLabels } from '../utils/status';
 
 type SettingTab = 'accounts' | 'people' | 'items' | 'fees' | 'brokers' | 'bankAccounts' | 'fax' | 'reminders' | 'print' | 'stations' | 'taskForces' | 'deleted';
 
-const tabs: Array<{ key: SettingTab; label: string }> = [
-  { key: 'accounts', label: '帳號設定' },
-  { key: 'people', label: '人員選項設定' },
-  { key: 'items', label: '送件項目設定' },
-  { key: 'fees', label: '手續費設定' },
-  { key: 'brokers', label: '仲介公司設定' },
-  { key: 'bankAccounts', label: '帳戶設定' },
-  { key: 'fax', label: '傳真 / 領件設定' },
-  { key: 'reminders', label: '提醒事項設定' },
-  { key: 'print', label: '列印設定' },
-  { key: 'stations', label: '移民署服務站' },
-  { key: 'taskForces', label: '專勤隊聯絡資訊' },
-  { key: 'deleted', label: '刪除救回資料' }
+const tabs: Array<{ key: SettingTab; label: string; iconName: string }> = [
+  { key: 'accounts', label: '帳號設定', iconName: '系統設定' },
+  { key: 'people', label: '人員選項設定', iconName: '系統設定' },
+  { key: 'items', label: '送件項目設定', iconName: '居留案件登記' },
+  { key: 'fees', label: '手續費設定', iconName: '財務查詢' },
+  { key: 'brokers', label: '仲介公司設定', iconName: '仲介與扣款帳號' },
+  { key: 'bankAccounts', label: '帳戶設定', iconName: '仲介與扣款帳號' },
+  { key: 'fax', label: '傳真 / 領件設定', iconName: '傳真/領件' },
+  { key: 'reminders', label: '提醒事項設定', iconName: '提醒事項' },
+  { key: 'print', label: '列印設定', iconName: '匯出資料' },
+  { key: 'stations', label: '移民署服務站', iconName: '移民署服務站' },
+  { key: 'taskForces', label: '專勤隊聯絡資訊', iconName: '專勤隊聯絡資訊' },
+  { key: 'deleted', label: '刪除救回資料', iconName: '操作紀錄' }
 ];
 
 export function SettingsPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
@@ -33,7 +34,7 @@ export function SettingsPage({ data, profile, reload }: { data: ArcData; profile
   return (
     <div className="page-content settings-page">
       <PageHeader title="系統設定" description="管理員可新增、修改、停用、刪除設定項目；不使用系統設定總覽。" />
-      <div className="tabs wrap-tabs">{tabs.map((item) => <button key={item.key} className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}>{item.label}</button>)}</div>
+      <div className="tabs wrap-tabs setting-tabs">{tabs.map((item) => <button key={item.key} className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}><IconImage name={item.iconName} size={18} />{item.label}</button>)}</div>
       {tab === 'accounts' && <AccountSettings data={data} profile={profile} reload={reload} />}
       {tab === 'people' && <PeopleSettings data={data} profile={profile} reload={reload} />}
       {tab === 'items' && <ApplicationItemSettings data={data} profile={profile} reload={reload} />}
