@@ -472,7 +472,7 @@ export async function updatePaymentBatchDate(params: {
   actor: Profile | null;
 }) {
   const { batch, nextPaymentDate, actor } = params;
-  if (actor?.role !== 'admin' && actor?.role !== 'finance') throw new Error('您沒有修改繳費日期的權限。');
+  if (!actor || !['admin', 'finance', 'staff'].includes(actor.role)) throw new Error('您沒有修改繳費日期的權限。');
   if (batch.status === 'confirmed') throw new Error('已對帳完成的批次不可在財務對帳確認修改繳費日期。');
   if (batch.payment_date === nextPaymentDate) return;
   const patch = { payment_date: nextPaymentDate, updated_by: actor?.id };
@@ -501,7 +501,7 @@ export async function adjustFinanceConfirmAccountBalance(params: {
   actor: Profile | null;
 }) {
   const { batch, account, nextBalance, reason, actor } = params;
-  if (actor?.role !== 'admin' && actor?.role !== 'finance') throw new Error('您沒有修改帳戶餘額的權限。');
+  if (!actor || !['admin', 'finance', 'staff'].includes(actor.role)) throw new Error('您沒有修改帳戶餘額的權限。');
   if (!Number.isFinite(nextBalance)) throw new Error('修改後餘額必須為有效數字。');
   const cleanReason = reason.trim();
   if (!cleanReason) throw new Error('請輸入餘額調整原因。');
@@ -1039,6 +1039,7 @@ export async function deletePickupRecord(record: PickupRecord, reason: string, a
 }
 
 export async function softDelete(table: string, row: { id: string; [key: string]: unknown }, actor: Profile | null, pageName: string, reason = '管理員刪除') {
+  assertAdmin(actor);
   const patch = { deleted_at: new Date().toISOString(), updated_by: actor?.id };
   const { error } = await supabase.from(table).update(patch).eq('id', row.id);
   if (error) throw error;

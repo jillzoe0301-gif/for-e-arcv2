@@ -8,6 +8,7 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../lib/supabase';
 import type { ApplicationItem, ArcData, BankAccount, BrokerCompany, ContactRecord, FeeSetting, PersonOption, Profile, Role } from '../types';
 import { IconImage } from '../utils/icons';
+import { canManageAccounts } from '../utils/permissions';
 import { formatMoney, parseMoney } from '../utils/number';
 import { rowMatchesKeyword } from '../utils/search';
 import { roleLabels } from '../utils/status';
@@ -54,6 +55,7 @@ export function SettingsPage({ data, profile, reload }: { data: ArcData; profile
 function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
+  const canManage = canManageAccounts(profile);
   const [newUser, setNewUser] = useState({ email: '', display_name: '', role: 'staff' as Role, password: '123456' });
 
   async function callAdminUsers(action: string, payload: Record<string, unknown>) {
@@ -65,6 +67,7 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
 
   async function createUser(event: FormEvent) {
     event.preventDefault();
+    if (!canManage) return pushToast({ type: 'warning', title: '只有管理員可以新增帳號。' });
     try {
       await callAdminUsers('createUser', newUser);
       pushToast({ type: 'success', title: '帳號已建立' });
@@ -76,6 +79,7 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
   }
 
   async function setRole(row: Profile, role: Role) {
+    if (!canManage) return pushToast({ type: 'warning', title: '只有管理員可以修改帳號角色。' });
     try {
       await callAdminUsers('updateProfile', { userId: row.id, profile: { role } });
       pushToast({ type: 'success', title: '權限已更新' });
@@ -86,6 +90,7 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
   }
 
   async function resetPassword(row: Profile) {
+    if (!canManage) return pushToast({ type: 'warning', title: '行政不可修改其他人的帳號密碼。' });
     const password = window.prompt(`請輸入 ${row.display_name} 的新密碼`, '123456');
     if (!password) return;
     try {
@@ -97,6 +102,7 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
   }
 
   async function toggleActive(row: Profile) {
+    if (!canManage) return pushToast({ type: 'warning', title: '只有管理員可以停用或啟用帳號。' });
     try {
       await callAdminUsers('updateProfile', { userId: row.id, profile: { is_active: !row.is_active } });
       pushToast({ type: 'success', title: row.is_active ? '帳號已停用' : '帳號已啟用' });
@@ -107,6 +113,7 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
   }
 
   async function deleteUser(row: Profile) {
+    if (!canManage) return pushToast({ type: 'warning', title: '只有管理員可以刪除帳號。' });
     if (!window.confirm(`確定要刪除帳號 ${row.display_name} 嗎？`)) return;
     try {
       await callAdminUsers('deleteUser', { userId: row.id });
@@ -119,17 +126,17 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
 
   return (
     <section className="card full-width-card">
-      <div className="toolbar-row"><h2>帳號設定</h2><button className="primary-button" onClick={() => setShowCreate(true)}>新增帳號</button></div>
+      <div className="toolbar-row"><h2>帳號設定</h2>{canManage ? <button className="primary-button" onClick={() => setShowCreate(true)}>新增帳號</button> : <span className="subtle-text">行政可查看帳號；密碼、角色、停用與刪除僅管理員可維護。</span>}</div>
       <DataTable columns={[
         { key: 'email', title: '帳號', render: (row: Profile) => row.email },
         { key: 'name', title: '使用者名稱', render: (row: Profile) => row.display_name },
-        { key: 'role', title: '角色 / 權限', render: (row: Profile) => <select value={row.role} onChange={(e) => setRole(row, e.target.value as Role)}>{Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select> },
+        { key: 'role', title: '角色 / 權限', render: (row: Profile) => canManage ? <select value={row.role} onChange={(e) => setRole(row, e.target.value as Role)}>{Object.entries(roleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select> : roleLabels[row.role] },
         { key: 'active', title: '是否啟用', render: (row: Profile) => row.is_active ? '啟用' : '停用' },
         { key: 'person', title: '所屬人員', render: (row: Profile) => data.people.find((item) => item.id === row.personnel_id)?.display_name ?? '' },
         { key: 'last', title: '最後登入時間', render: (row: Profile) => row.last_login_at ?? '' },
-        { key: 'action', title: '操作', render: (row: Profile) => <div className="action-stack horizontal"><button className="secondary-button mini" onClick={() => resetPassword(row)}>密碼重設</button><button className="secondary-button mini" onClick={() => toggleActive(row)}>{row.is_active ? '停用' : '啟用'}</button><button className="danger-link" onClick={() => deleteUser(row)}>刪除</button></div> }
+        { key: 'action', title: '操作', render: (row: Profile) => canManage ? <div className="action-stack horizontal"><button className="secondary-button mini" onClick={() => resetPassword(row)}>密碼重設</button><button className="secondary-button mini" onClick={() => toggleActive(row)}>{row.is_active ? '停用' : '啟用'}</button><button className="danger-link" onClick={() => deleteUser(row)}>刪除</button></div> : <span className="subtle-text">僅管理員可維護</span> }
       ]} rows={data.profiles} rowKey={(row) => row.id} />
-      {showCreate ? (
+      {showCreate && canManage ? (
         <Modal title="新增帳號" onClose={() => setShowCreate(false)}>
           <form className="form-grid one-col" onSubmit={createUser}>
             <label><span>Email</span><input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} required /></label>
@@ -334,7 +341,7 @@ function SettingActions<T extends { id: string }>({ row, table, pageName, profil
       pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '' });
     }
   }
-  return <div className="action-stack horizontal"><button className="secondary-button mini" onClick={onEdit}>修改</button><button className="danger-link" onClick={remove}>刪除</button></div>;
+  return <div className="action-stack horizontal"><button className="secondary-button mini" onClick={onEdit}>修改</button>{profile?.role === 'admin' ? <button className="danger-link" onClick={remove}>刪除</button> : null}</div>;
 }
 
 function TextField({ label, value, onChange }: { label: string; value: unknown; onChange: (value: string) => void }) {

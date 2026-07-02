@@ -9,7 +9,7 @@ import { useToast } from '../context/ToastContext';
 import type { AccountTransaction, ArcCase, ArcData, PaymentBatch, PaymentBatchItem, Profile } from '../types';
 import { displayDateTime, formatDate, monthKey, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
-import { canDeleteData } from '../utils/permissions';
+import { canDeleteData, canEditFinanceDetail } from '../utils/permissions';
 import { rowMatchesKeyword } from '../utils/search';
 
 type FinanceBatchDetailRow = {
@@ -218,7 +218,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
     }
   }
 
-  const canEditFinanceDetail = profile?.role === 'admin' || profile?.role === 'finance' || profile?.role === 'staff';
+  const canEditFinanceDetailFlag = canEditFinanceDetail(profile?.role);
 
   function openDetailEditor(batch: PaymentBatch, row: FinanceBatchDetailRow) {
     const itemId = row.item.corrected_application_item_id ?? row.caseRow.application_item_id;
@@ -241,7 +241,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
 
   async function submitDetailEdit() {
     if (!editingDetail) return;
-    if (!canEditFinanceDetail) {
+    if (!canEditFinanceDetailFlag) {
       pushToast({ type: 'warning', title: '您沒有修改明細資料的權限。' });
       return;
     }
@@ -290,7 +290,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
     { key: 'payment_date', title: '繳費日期', render: (row: FinanceBatchDetailRow) => formatDate(row.paymentDate) },
     { key: 'handler', title: '承辦', render: (row: FinanceBatchDetailRow) => row.caseRow.handler_name },
     { key: 'correction', title: '修正紀錄', render: (row: FinanceBatchDetailRow) => formatCorrectionRecord(row.item, row.caseRow, data) },
-    { key: 'action', title: '操作', render: (row: FinanceBatchDetailRow) => canEditFinanceDetail ? <button type="button" className="secondary-button mini" onClick={() => { const batch = data.batches.find((item) => item.id === row.item.batch_id); if (batch) openDetailEditor(batch, row); }}>修改明細</button> : null }
+    { key: 'action', title: '操作', render: (row: FinanceBatchDetailRow) => canEditFinanceDetailFlag ? <button type="button" className="secondary-button mini" onClick={() => { const batch = data.batches.find((item) => item.id === row.item.batch_id); if (batch) openDetailEditor(batch, row); }}>修改明細</button> : null }
   ];
 
 

@@ -14,7 +14,7 @@ import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, BankAccount, PaymentBatch, PaymentBatchItem, Profile } from '../types';
 import { displayDateTime, formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
-import { canAdjustFinanceConfirmBalance, canDeleteData, canModifyFinanceBatchDate } from '../utils/permissions';
+import { canAdjustFinanceConfirmBalance, canCompleteFinanceBatch, canDeleteData, canEditFinanceDetail, canModifyFinanceBatchDate } from '../utils/permissions';
 
 type AccountBalanceRow = {
   account: BankAccount;
@@ -117,7 +117,8 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const selectedBatchTotal = details.reduce((sum, entry) => sum + Number(entry.item.corrected_amount ?? entry.caseRow.amount ?? entry.item.original_amount ?? 0), 0);
   const mayChangeDate = selectedBatch ? canModifyFinanceBatchDate(profile?.role) && selectedBatch.status !== 'confirmed' : false;
   const mayAdjustBalance = canAdjustFinanceConfirmBalance(profile?.role);
-  const mayCompleteBatch = profile?.role === 'admin' || profile?.role === 'finance';
+  const mayCompleteBatch = canCompleteFinanceBatch(profile?.role);
+  const canEditFinanceDetailFlag = canEditFinanceDetail(profile?.role);
 
   function setAccountDraft(accountId: string, patch: Partial<AccountDraft>) {
     setAccountDrafts((current) => ({
@@ -362,12 +363,12 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     { key: 'payment_date', title: '繳費日期', render: () => formatDate(selectedBatch?.payment_date) },
     { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
     { key: 'correction', title: '修正紀錄', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatCorrectionRecord(row.item, row.caseRow, data) },
-    { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => <button className="danger-button mini" onClick={() => openCorrection(row)}>修改明細</button> }
+    { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => canEditFinanceDetailFlag ? <button className="danger-button mini" onClick={() => openCorrection(row)}>修改明細</button> : null }
   ];
 
   return (
     <div className="page-content finance-page">
-      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可調整帳戶餘額與完成對帳；行政可修改批次明細與項目金額錯誤，但不可刪除或完成對帳。" />
+      <PageHeader title="財務對帳確認" description="管理員、行政、會計可修改財務明細並處理對帳；僅管理員可刪除會計資訊。" />
 
       <div className="receipt-path-note">收據存放路徑：Z:\行政\$移民署繳費</div>
 
