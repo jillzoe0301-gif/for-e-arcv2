@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
-import { deletePaymentBatch } from '../api/repository';
+import { deletePaymentBatch, updateFinanceDetailCase } from '../api/repository';
 import { DataTable } from '../components/DataTable';
+import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchInput } from '../components/SearchInput';
 import { BatchStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
 import type { AccountTransaction, ArcCase, ArcData, PaymentBatch, PaymentBatchItem, Profile } from '../types';
-import { displayDateTime, formatDate, monthKey } from '../utils/date';
-import { formatMoney } from '../utils/number';
+import { displayDateTime, formatDate, monthKey, parseDateLoose } from '../utils/date';
+import { formatMoney, parseMoney } from '../utils/number';
 import { canDeleteData } from '../utils/permissions';
 import { rowMatchesKeyword } from '../utils/search';
 
@@ -34,30 +35,52 @@ type BalanceTransactionRow = {
   actorName: string;
 };
 
+type DetailEditDraft = {
+  employer_name: string;
+  worker_name: string;
+  group_no: string;
+  entry_date: string;
+  application_date: string;
+  application_item_id: string;
+  amount: string;
+  reason: string;
+};
+
 function formatCorrectionRecord(item: PaymentBatchItem, caseRow: ArcCase, data: ArcData) {
   const hasCorrection = Boolean(item.corrected_application_item_id || item.corrected_amount != null || item.correction_reason);
-  if (!hasCorrection) return '';
-
-  const originalApplicationItemId = item.original_application_item_id ?? caseRow.application_item_id;
-  const correctedApplicationItemId = item.corrected_application_item_id ?? originalApplicationItemId;
-  const originalApplicationItemName = data.applicationItems.find((appItem) => appItem.id === originalApplicationItemId)?.name ?? '';
-  const correctedApplicationItemName = data.applicationItems.find((appItem) => appItem.id === correctedApplicationItemId)?.name ?? originalApplicationItemName;
-  const originalAmount = Number(item.original_amount ?? caseRow.amount ?? 0);
-  const correctedAmount = Number(item.corrected_amount ?? originalAmount);
   const records: string[] = [];
 
-  if (originalApplicationItemId !== correctedApplicationItemId) {
-    records.push(`項目：${originalApplicationItemName} → ${correctedApplicationItemName}`);
+  if (hasCorrection) {
+    const originalApplicationItemId = item.original_application_item_id ?? caseRow.application_item_id;
+    const correctedApplicationItemId = item.corrected_application_item_id ?? originalApplicationItemId;
+    const originalApplicationItemName = data.applicationItems.find((appItem) => appItem.id === originalApplicationItemId)?.name ?? '';
+    const correctedApplicationItemName = data.applicationItems.find((appItem) => appItem.id === correctedApplicationItemId)?.name ?? originalApplicationItemName;
+    const originalAmount = Number(item.original_amount ?? caseRow.amount ?? 0);
+    const correctedAmount = Number(item.corrected_amount ?? originalAmount);
+
+    if (originalApplicationItemId !== correctedApplicationItemId) {
+      records.push(`項目：${originalApplicationItemName} → ${correctedApplicationItemName}`);
+    }
+    if (originalAmount !== correctedAmount) {
+      records.push(`金額：${formatMoney(originalAmount)} → ${formatMoney(correctedAmount)}`);
+    }
+    if (item.correction_reason) {
+      records.push(`原因：${item.correction_reason}`);
+    }
+    if (item.corrected_at) {
+      records.push(`修正時間：${formatDate(item.corrected_at)}`);
+    }
   }
-  if (originalAmount !== correctedAmount) {
-    records.push(`金額：${formatMoney(originalAmount)} → ${formatMoney(correctedAmount)}`);
-  }
-  if (item.correction_reason) {
-    records.push(`原因：${item.correction_reason}`);
-  }
-  if (item.corrected_at) {
-    records.push(`修正時間：${formatDate(item.corrected_at)}`);
-  }
+
+  const detailEditLogs = data.auditLogs
+    .filter((log) => log.action_type === '財務明細資料修改' && log.record_id === caseRow.id)
+    .slice(0, 2)
+    .map((log) => {
+      const nextData = (log.new_data ?? {}) as Record<string, unknown>;
+      const summary = String(nextData.異動摘要 ?? '').trim();
+      return summary ? `明細：${summary}（${displayDateTime(log.created_at)}）` : `明細資料修改（${displayDateTime(log.created_at)}）`;
+    });
+  records.push(...detailEditLogs);
 
   return records.join('；');
 }
@@ -67,6 +90,8 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
   const [keyword, setKeyword] = useState('');
   const [month, setMonth] = useState('');
   const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
+  const [editingDetail, setEditingDetail] = useState<{ batch: PaymentBatch; row: FinanceBatchDetailRow } | null>(null);
+  const [detailDraft, setDetailDraft] = useState<DetailEditDraft>({ employer_name: '', worker_name: '', group_no: '', entry_date: '', application_date: '', application_item_id: '', amount: '', reason: '' });
 
   const allConfirmedBatches = useMemo(() => {
     return data.batches
@@ -120,6 +145,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
           caseRow.employer_name,
           caseRow.worker_name,
           caseRow.entry_date,
+          caseRow.application_date,
           data.applicationItems.find((appItem) => appItem.id === (item.corrected_application_item_id ?? caseRow.application_item_id))?.name,
           item.corrected_amount ?? item.original_amount ?? caseRow.amount,
           paymentDate,
@@ -192,17 +218,79 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
     }
   }
 
+  const canEditFinanceDetail = profile?.role === 'admin' || profile?.role === 'finance';
+
+  function openDetailEditor(batch: PaymentBatch, row: FinanceBatchDetailRow) {
+    const itemId = row.item.corrected_application_item_id ?? row.caseRow.application_item_id;
+    setEditingDetail({ batch, row });
+    setDetailDraft({
+      employer_name: row.caseRow.employer_name ?? '',
+      worker_name: row.caseRow.worker_name ?? '',
+      group_no: row.caseRow.group_no ?? '',
+      entry_date: formatDate(row.caseRow.entry_date) ?? '',
+      application_date: formatDate(row.caseRow.application_date) ?? '',
+      application_item_id: itemId,
+      amount: String(row.item.corrected_amount ?? row.item.original_amount ?? row.caseRow.amount ?? ''),
+      reason: row.item.correction_reason ?? ''
+    });
+  }
+
+  function updateDetailDraft(patch: Partial<DetailEditDraft>) {
+    setDetailDraft((current) => ({ ...current, ...patch }));
+  }
+
+  async function submitDetailEdit() {
+    if (!editingDetail) return;
+    if (!canEditFinanceDetail) {
+      pushToast({ type: 'warning', title: '您沒有修改明細資料的權限。' });
+      return;
+    }
+    const money = parseMoney(detailDraft.amount);
+    if (money === null) return pushToast({ type: 'warning', title: '金額格式錯誤' });
+    const entryDate = detailDraft.entry_date.trim() ? parseDateLoose(detailDraft.entry_date) : '';
+    if (detailDraft.entry_date.trim() && !entryDate) return pushToast({ type: 'warning', title: '入境日格式不正確，請重新輸入。' });
+    const applicationDate = parseDateLoose(detailDraft.application_date);
+    if (!applicationDate) return pushToast({ type: 'warning', title: '申請日格式不正確，請重新輸入。' });
+    if (!detailDraft.reason.trim()) return pushToast({ type: 'warning', title: '請輸入修正原因' });
+    try {
+      await updateFinanceDetailCase({
+        batch: editingDetail.batch,
+        item: editingDetail.row.item,
+        caseRow: editingDetail.row.caseRow,
+        patch: {
+          employer_name: detailDraft.employer_name,
+          worker_name: detailDraft.worker_name,
+          group_no: detailDraft.group_no,
+          entry_date: entryDate || null,
+          application_date: applicationDate,
+          application_item_id: detailDraft.application_item_id,
+          amount: money
+        },
+        reason: detailDraft.reason.trim(),
+        actor: profile,
+        pageName: '財務查詢'
+      });
+      pushToast({ type: 'success', title: '明細資料已修正' });
+      setEditingDetail(null);
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '修正失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
   const detailColumns = [
     { key: 'case_no', title: '案件編號', render: (row: FinanceBatchDetailRow) => row.caseRow.case_no },
     { key: 'group', title: '團號', render: (row: FinanceBatchDetailRow) => row.caseRow.group_no ?? '' },
     { key: 'employer', title: '雇主', render: (row: FinanceBatchDetailRow) => row.caseRow.employer_name },
     { key: 'worker', title: '工人', render: (row: FinanceBatchDetailRow) => row.caseRow.worker_name },
     { key: 'entry_date', title: '入境日', render: (row: FinanceBatchDetailRow) => formatDate(row.caseRow.entry_date) },
+    { key: 'application_date', title: '申請日', render: (row: FinanceBatchDetailRow) => formatDate(row.caseRow.application_date) },
     { key: 'item', title: '申請項目', render: (row: FinanceBatchDetailRow) => data.applicationItems.find((item) => item.id === (row.item.corrected_application_item_id ?? row.caseRow.application_item_id))?.name ?? '' },
     { key: 'amount', title: '項目金額', render: (row: FinanceBatchDetailRow) => formatMoney(row.item.corrected_amount ?? row.item.original_amount ?? row.caseRow.amount) },
     { key: 'payment_date', title: '繳費日期', render: (row: FinanceBatchDetailRow) => formatDate(row.paymentDate) },
     { key: 'handler', title: '承辦', render: (row: FinanceBatchDetailRow) => row.caseRow.handler_name },
-    { key: 'correction', title: '修正紀錄', render: (row: FinanceBatchDetailRow) => formatCorrectionRecord(row.item, row.caseRow, data) }
+    { key: 'correction', title: '修正紀錄', render: (row: FinanceBatchDetailRow) => formatCorrectionRecord(row.item, row.caseRow, data) },
+    { key: 'action', title: '操作', render: (row: FinanceBatchDetailRow) => canEditFinanceDetail ? <button type="button" className="secondary-button mini" onClick={() => { const batch = data.batches.find((item) => item.id === row.item.batch_id); if (batch) openDetailEditor(batch, row); }}>修改明細</button> : null }
   ];
 
 
@@ -288,6 +376,23 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
         <p className="subtle-text">顯示財務對帳確認與帳戶設定產生的餘額異動紀錄；此頁只供查看，不提供直接修改餘額。</p>
         <DataTable columns={transactionColumns} rows={balanceTransactionRows} rowKey={(row) => row.txn.id} emptyText="目前沒有符合條件的餘額異動紀錄" />
       </section>
+
+      {editingDetail ? (
+        <Modal title="修改財務查詢明細" onClose={() => setEditingDetail(null)}>
+          <div className="form-grid two-col">
+            <label><span>雇主</span><input value={detailDraft.employer_name} onChange={(e) => updateDetailDraft({ employer_name: e.target.value })} /></label>
+            <label><span>工人</span><input value={detailDraft.worker_name} onChange={(e) => updateDetailDraft({ worker_name: e.target.value })} /></label>
+            <label><span>團號</span><input value={detailDraft.group_no} onChange={(e) => updateDetailDraft({ group_no: e.target.value })} /></label>
+            <label><span>入境日</span><input value={detailDraft.entry_date} onChange={(e) => updateDetailDraft({ entry_date: e.target.value })} onBlur={() => updateDetailDraft({ entry_date: detailDraft.entry_date ? (parseDateLoose(detailDraft.entry_date) ?? detailDraft.entry_date) : '' })} placeholder="例：20260701 / 1150701" /></label>
+            <label><span>申請日</span><input value={detailDraft.application_date} onChange={(e) => updateDetailDraft({ application_date: e.target.value })} onBlur={() => updateDetailDraft({ application_date: parseDateLoose(detailDraft.application_date) ?? detailDraft.application_date })} placeholder="例：20260701 / 1150701" /></label>
+            <label><span>申請項目</span><select value={detailDraft.application_item_id} onChange={(e) => updateDetailDraft({ application_item_id: e.target.value })}>{data.applicationItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label><span>項目金額</span><input value={detailDraft.amount} onChange={(e) => updateDetailDraft({ amount: e.target.value })} /></label>
+            <label className="full-span"><span>修正原因 / 備註</span><textarea value={detailDraft.reason} onChange={(e) => updateDetailDraft({ reason: e.target.value })} /></label>
+          </div>
+          <div className="form-actions"><button className="danger-button" onClick={submitDetailEdit}>儲存修正</button></div>
+        </Modal>
+      ) : null}
+
     </div>
   );
 }

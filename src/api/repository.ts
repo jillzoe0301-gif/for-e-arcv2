@@ -613,6 +613,134 @@ export async function correctPaymentItem(params: {
   });
 }
 
+export async function updateFinanceDetailCase(params: {
+  batch: PaymentBatch;
+  item: PaymentBatchItem;
+  caseRow: ArcCase;
+  patch: {
+    employer_name: string;
+    worker_name: string;
+    group_no?: string | null;
+    entry_date?: string | null;
+    application_date: string;
+    application_item_id: string;
+    amount: number;
+  };
+  reason: string;
+  actor: Profile | null;
+  pageName?: string;
+}) {
+  const { batch, item, caseRow, patch, reason, actor, pageName = '財務對帳確認' } = params;
+  if (!actor || !['admin', 'finance', 'staff'].includes(actor.role)) throw new Error('您沒有修改明細資料的權限。');
+  const cleanReason = reason.trim();
+  if (!cleanReason) throw new Error('請輸入修正原因。');
+  const nextCasePatch = {
+    employer_name: patch.employer_name.trim(),
+    worker_name: patch.worker_name.trim(),
+    group_no: patch.group_no?.trim() || null,
+    entry_date: patch.entry_date || null,
+    application_date: patch.application_date,
+    application_item_id: patch.application_item_id,
+    amount: patch.amount,
+    updated_by: actor.id
+  };
+  if (!nextCasePatch.employer_name) throw new Error('雇主不可空白。');
+  if (!nextCasePatch.worker_name) throw new Error('工人不可空白。');
+  if (!nextCasePatch.application_date) throw new Error('申請日格式不正確，請重新輸入。');
+  if (!nextCasePatch.application_item_id) throw new Error('請選擇申請項目。');
+  if (!Number.isFinite(nextCasePatch.amount) || nextCasePatch.amount < 0) throw new Error('金額格式不正確，請重新輸入。');
+
+  const currentApplicationItemId = item.corrected_application_item_id ?? caseRow.application_item_id;
+  const currentAmount = Number(item.corrected_amount ?? item.original_amount ?? caseRow.amount ?? 0);
+  const caseChanged =
+    caseRow.employer_name !== nextCasePatch.employer_name ||
+    caseRow.worker_name !== nextCasePatch.worker_name ||
+    (caseRow.group_no ?? null) !== nextCasePatch.group_no ||
+    (caseRow.entry_date ?? null) !== nextCasePatch.entry_date ||
+    caseRow.application_date !== nextCasePatch.application_date ||
+    caseRow.application_item_id !== nextCasePatch.application_item_id ||
+    Number(caseRow.amount ?? 0) !== nextCasePatch.amount;
+  const itemChanged = currentApplicationItemId !== nextCasePatch.application_item_id || currentAmount !== nextCasePatch.amount;
+  if (!caseChanged && !itemChanged) return;
+
+  const changedFields: string[] = [];
+  if (caseRow.employer_name !== nextCasePatch.employer_name) changedFields.push(`雇主：${caseRow.employer_name || '空白'} → ${nextCasePatch.employer_name}`);
+  if (caseRow.worker_name !== nextCasePatch.worker_name) changedFields.push(`工人：${caseRow.worker_name || '空白'} → ${nextCasePatch.worker_name}`);
+  if ((caseRow.group_no ?? '') !== (nextCasePatch.group_no ?? '')) changedFields.push(`團號：${caseRow.group_no || '空白'} → ${nextCasePatch.group_no || '空白'}`);
+  if ((caseRow.entry_date ?? '') !== (nextCasePatch.entry_date ?? '')) changedFields.push(`入境日：${caseRow.entry_date || '空白'} → ${nextCasePatch.entry_date || '空白'}`);
+  if (caseRow.application_date !== nextCasePatch.application_date) changedFields.push(`申請日：${caseRow.application_date || '空白'} → ${nextCasePatch.application_date}`);
+  if (currentApplicationItemId !== nextCasePatch.application_item_id) changedFields.push('申請項目：已調整');
+  if (currentAmount !== nextCasePatch.amount) changedFields.push(`項目金額：${currentAmount} → ${nextCasePatch.amount}`);
+
+  const { error: caseError } = await supabase.from('arc_cases').update(nextCasePatch).eq('id', caseRow.id);
+  if (caseError) throw caseError;
+
+  let itemPatch: Record<string, unknown> | null = null;
+  if (itemChanged) {
+    itemPatch = {
+      corrected_application_item_id: nextCasePatch.application_item_id,
+      corrected_amount: nextCasePatch.amount,
+      correction_reason: cleanReason,
+      corrected_by: actor.id,
+      corrected_at: new Date().toISOString()
+    };
+    const { error: itemError } = await supabase.from('payment_batch_items').update(itemPatch).eq('id', item.id);
+    if (itemError) throw itemError;
+
+    const { data: latestBatchItems, error: latestItemsError } = await supabase
+      .from('payment_batch_items')
+      .select('*')
+      .eq('batch_id', batch.id);
+    if (latestItemsError) throw latestItemsError;
+    const recalculatedTotal = (latestBatchItems ?? []).reduce((sum: number, row: PaymentBatchItem) => {
+      if (row.id === item.id) return sum + nextCasePatch.amount;
+      return sum + Number(row.corrected_amount ?? row.original_amount ?? 0);
+    }, 0);
+    const batchPatch: Record<string, unknown> = { total_amount: recalculatedTotal, updated_by: actor.id };
+    if (batch.status !== 'confirmed') batchPatch.status = 'amount_error';
+    const { error: batchError } = await supabase.from('payment_batches').update(batchPatch).eq('id', batch.id);
+    if (batchError) throw batchError;
+  }
+
+  await addAudit({
+    action_type: '財務明細資料修改',
+    actor_id: actor.id,
+    actor_name: actor.display_name,
+    page_name: pageName,
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: {
+      繳費批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      雇主: caseRow.employer_name,
+      工人: caseRow.worker_name,
+      團號: caseRow.group_no,
+      入境日: caseRow.entry_date,
+      申請日: caseRow.application_date,
+      申請項目: currentApplicationItemId,
+      項目金額: currentAmount,
+      原始案件: caseRow,
+      原始批次項目: item
+    },
+    new_data: {
+      繳費批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      雇主: nextCasePatch.employer_name,
+      工人: nextCasePatch.worker_name,
+      團號: nextCasePatch.group_no,
+      入境日: nextCasePatch.entry_date,
+      申請日: nextCasePatch.application_date,
+      申請項目: nextCasePatch.application_item_id,
+      項目金額: nextCasePatch.amount,
+      異動摘要: changedFields.join('；'),
+      更新案件: nextCasePatch,
+      更新批次項目: itemPatch
+    },
+    reason: cleanReason
+  });
+}
+
+
 export async function adjustAccountBalance(account: BankAccount, nextBalance: number, reason: string, actor: Profile | null) {
   const before = Number(account.current_balance ?? 0);
   const delta = nextBalance - before;

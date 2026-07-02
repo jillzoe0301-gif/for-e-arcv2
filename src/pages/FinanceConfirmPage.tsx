@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   adjustFinanceConfirmAccountBalance,
   confirmPaymentBatch,
-  correctPaymentItem,
+  updateFinanceDetailCase,
   deletePaymentBatch,
   updatePaymentBatchDate
 } from '../api/repository';
@@ -12,7 +12,7 @@ import { PageHeader } from '../components/PageHeader';
 import { BatchStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, BankAccount, PaymentBatch, PaymentBatchItem, Profile } from '../types';
-import { formatDate, parseDateLoose } from '../utils/date';
+import { displayDateTime, formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
 import { canAdjustFinanceConfirmBalance, canDeleteData, canModifyFinanceBatchDate } from '../utils/permissions';
 
@@ -26,34 +26,56 @@ type AccountDraft = {
   reason: string;
 };
 
+type DetailEditDraft = {
+  employer_name: string;
+  worker_name: string;
+  group_no: string;
+  entry_date: string;
+  application_date: string;
+  application_item_id: string;
+  amount: string;
+  reason: string;
+};
+
 function isNoBalanceBrokerName(name: string | undefined) {
   return Boolean(name && (name.includes('灃禾') || name.includes('乾坤')));
 }
 
 function formatCorrectionRecord(item: PaymentBatchItem, caseRow: ArcCase, data: ArcData) {
   const hasCorrection = Boolean(item.corrected_application_item_id || item.corrected_amount != null || item.correction_reason);
-  if (!hasCorrection) return '';
-
-  const originalApplicationItemId = item.original_application_item_id ?? caseRow.application_item_id;
-  const correctedApplicationItemId = item.corrected_application_item_id ?? originalApplicationItemId;
-  const originalApplicationItemName = data.applicationItems.find((appItem) => appItem.id === originalApplicationItemId)?.name ?? '';
-  const correctedApplicationItemName = data.applicationItems.find((appItem) => appItem.id === correctedApplicationItemId)?.name ?? originalApplicationItemName;
-  const originalAmount = Number(item.original_amount ?? caseRow.amount ?? 0);
-  const correctedAmount = Number(item.corrected_amount ?? originalAmount);
   const records: string[] = [];
 
-  if (originalApplicationItemId !== correctedApplicationItemId) {
-    records.push(`項目：${originalApplicationItemName} → ${correctedApplicationItemName}`);
+  if (hasCorrection) {
+    const originalApplicationItemId = item.original_application_item_id ?? caseRow.application_item_id;
+    const correctedApplicationItemId = item.corrected_application_item_id ?? originalApplicationItemId;
+    const originalApplicationItemName = data.applicationItems.find((appItem) => appItem.id === originalApplicationItemId)?.name ?? '';
+    const correctedApplicationItemName = data.applicationItems.find((appItem) => appItem.id === correctedApplicationItemId)?.name ?? originalApplicationItemName;
+    const originalAmount = Number(item.original_amount ?? caseRow.amount ?? 0);
+    const correctedAmount = Number(item.corrected_amount ?? originalAmount);
+
+    if (originalApplicationItemId !== correctedApplicationItemId) {
+      records.push(`項目：${originalApplicationItemName} → ${correctedApplicationItemName}`);
+    }
+    if (originalAmount !== correctedAmount) {
+      records.push(`金額：${formatMoney(originalAmount)} → ${formatMoney(correctedAmount)}`);
+    }
+    if (item.correction_reason) {
+      records.push(`原因：${item.correction_reason}`);
+    }
+    if (item.corrected_at) {
+      records.push(`修正時間：${formatDate(item.corrected_at)}`);
+    }
   }
-  if (originalAmount !== correctedAmount) {
-    records.push(`金額：${formatMoney(originalAmount)} → ${formatMoney(correctedAmount)}`);
-  }
-  if (item.correction_reason) {
-    records.push(`原因：${item.correction_reason}`);
-  }
-  if (item.corrected_at) {
-    records.push(`修正時間：${formatDate(item.corrected_at)}`);
-  }
+
+  const detailEditLogs = data.auditLogs
+    .filter((log) => log.action_type === '財務明細資料修改' && log.record_id === caseRow.id)
+    .slice(0, 2)
+    .map((log) => {
+      const nextData = (log.new_data ?? {}) as Record<string, unknown>;
+      const summary = String(nextData.異動摘要 ?? '').trim();
+      return summary ? `明細：${summary}（${displayDateTime(log.created_at)}）` : `明細資料修改（${displayDateTime(log.created_at)}）`;
+    });
+  records.push(...detailEditLogs);
 
   return records.join('；');
 }
@@ -65,6 +87,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const [correctedItemId, setCorrectedItemId] = useState('');
   const [correctedAmount, setCorrectedAmount] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
+  const [detailDraft, setDetailDraft] = useState<DetailEditDraft>({ employer_name: '', worker_name: '', group_no: '', entry_date: '', application_date: '', application_item_id: '', amount: '', reason: '' });
   const [dateEditor, setDateEditor] = useState<{ batch: PaymentBatch; value: string } | null>(null);
   const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
 
@@ -131,10 +154,23 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   }
 
   function openCorrection(entry: { item: PaymentBatchItem; caseRow: ArcCase }) {
+    const itemId = entry.item.corrected_application_item_id ?? entry.caseRow.application_item_id;
+    const amount = String(entry.item.corrected_amount ?? entry.item.original_amount ?? entry.caseRow.amount ?? '');
+    const reason = entry.item.correction_reason ?? '';
     setCorrection(entry);
-    setCorrectedItemId(entry.item.corrected_application_item_id ?? entry.caseRow.application_item_id);
-    setCorrectedAmount(String(entry.item.corrected_amount ?? entry.caseRow.amount ?? entry.item.original_amount));
-    setCorrectionReason(entry.item.correction_reason ?? '');
+    setCorrectedItemId(itemId);
+    setCorrectedAmount(amount);
+    setCorrectionReason(reason);
+    setDetailDraft({
+      employer_name: entry.caseRow.employer_name ?? '',
+      worker_name: entry.caseRow.worker_name ?? '',
+      group_no: entry.caseRow.group_no ?? '',
+      entry_date: formatDate(entry.caseRow.entry_date) ?? '',
+      application_date: formatDate(entry.caseRow.application_date) ?? '',
+      application_item_id: itemId,
+      amount,
+      reason
+    });
   }
 
   async function removeBatch(batch: PaymentBatch) {
@@ -208,28 +244,48 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     }
   }
 
+  function updateDetailDraft(patch: Partial<DetailEditDraft>) {
+    setDetailDraft((current) => ({ ...current, ...patch }));
+    if (patch.application_item_id !== undefined) setCorrectedItemId(patch.application_item_id);
+    if (patch.amount !== undefined) setCorrectedAmount(patch.amount);
+    if (patch.reason !== undefined) setCorrectionReason(patch.reason);
+  }
+
   async function submitCorrection() {
     if (!selectedBatch || !correction) return;
-    const money = parseMoney(correctedAmount);
+    const money = parseMoney(detailDraft.amount);
     if (money === null) return pushToast({ type: 'warning', title: '金額格式錯誤' });
-    if (!correctionReason.trim()) return pushToast({ type: 'warning', title: '請輸入錯誤原因' });
+    const entryDate = detailDraft.entry_date.trim() ? parseDateLoose(detailDraft.entry_date) : '';
+    if (detailDraft.entry_date.trim() && !entryDate) return pushToast({ type: 'warning', title: '入境日格式不正確，請重新輸入。' });
+    const applicationDate = parseDateLoose(detailDraft.application_date);
+    if (!applicationDate) return pushToast({ type: 'warning', title: '申請日格式不正確，請重新輸入。' });
+    if (!detailDraft.reason.trim()) return pushToast({ type: 'warning', title: '請輸入修正原因' });
     try {
-      await correctPaymentItem({
+      await updateFinanceDetailCase({
         batch: selectedBatch,
         item: correction.item,
         caseRow: correction.caseRow,
-        correctedApplicationItemId: correctedItemId,
-        correctedAmount: money,
-        reason: correctionReason.trim(),
-        actor: profile
+        patch: {
+          employer_name: detailDraft.employer_name,
+          worker_name: detailDraft.worker_name,
+          group_no: detailDraft.group_no,
+          entry_date: entryDate || null,
+          application_date: applicationDate,
+          application_item_id: detailDraft.application_item_id,
+          amount: money
+        },
+        reason: detailDraft.reason.trim(),
+        actor: profile,
+        pageName: '財務對帳確認'
       });
-      pushToast({ type: 'success', title: '項目金額已修正' });
+      pushToast({ type: 'success', title: '明細資料已修正' });
       setCorrection(null);
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '修正失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     }
   }
+
 
   const accountBalanceColumns = [
     { key: 'broker', title: '仲介', render: (row: AccountBalanceRow) => row.brokerName },
@@ -300,12 +356,13 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     { key: 'employer', title: '雇主', render: (row: { caseRow: ArcCase }) => row.caseRow.employer_name },
     { key: 'worker', title: '工人', render: (row: { caseRow: ArcCase }) => row.caseRow.worker_name },
     { key: 'entry_date', title: '入境日', render: (row: { caseRow: ArcCase }) => formatDate(row.caseRow.entry_date) },
+    { key: 'application_date', title: '申請日', render: (row: { caseRow: ArcCase }) => formatDate(row.caseRow.application_date) },
     { key: 'item', title: '申請項目', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => data.applicationItems.find((item) => item.id === (row.item.corrected_application_item_id ?? row.caseRow.application_item_id))?.name ?? '' },
     { key: 'amount', title: '項目金額', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatMoney(row.item.corrected_amount ?? row.item.original_amount ?? row.caseRow.amount) },
     { key: 'payment_date', title: '繳費日期', render: () => formatDate(selectedBatch?.payment_date) },
     { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
     { key: 'correction', title: '修正紀錄', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatCorrectionRecord(row.item, row.caseRow, data) },
-    { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => <button className="danger-button mini" onClick={() => openCorrection(row)}>項目金額錯誤</button> }
+    { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => <button className="danger-button mini" onClick={() => openCorrection(row)}>修改明細</button> }
   ];
 
   return (
@@ -366,11 +423,16 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
       ) : null}
 
       {correction ? (
-        <Modal title="項目金額錯誤" onClose={() => setCorrection(null)}>
-          <div className="form-grid one-col">
-            <label><span>申請項目</span><select value={correctedItemId} onChange={(e) => setCorrectedItemId(e.target.value)}>{data.applicationItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label><span>項目金額</span><input value={correctedAmount} onChange={(e) => setCorrectedAmount(e.target.value)} /></label>
-            <label><span>備註 / 錯誤原因</span><textarea value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} /></label>
+        <Modal title="修改財務明細資料" onClose={() => setCorrection(null)}>
+          <div className="form-grid two-col">
+            <label><span>雇主</span><input value={detailDraft.employer_name} onChange={(e) => updateDetailDraft({ employer_name: e.target.value })} /></label>
+            <label><span>工人</span><input value={detailDraft.worker_name} onChange={(e) => updateDetailDraft({ worker_name: e.target.value })} /></label>
+            <label><span>團號</span><input value={detailDraft.group_no} onChange={(e) => updateDetailDraft({ group_no: e.target.value })} /></label>
+            <label><span>入境日</span><input value={detailDraft.entry_date} onChange={(e) => updateDetailDraft({ entry_date: e.target.value })} onBlur={() => updateDetailDraft({ entry_date: detailDraft.entry_date ? (parseDateLoose(detailDraft.entry_date) ?? detailDraft.entry_date) : '' })} placeholder="例：20260701 / 1150701" /></label>
+            <label><span>申請日</span><input value={detailDraft.application_date} onChange={(e) => updateDetailDraft({ application_date: e.target.value })} onBlur={() => updateDetailDraft({ application_date: parseDateLoose(detailDraft.application_date) ?? detailDraft.application_date })} placeholder="例：20260701 / 1150701" /></label>
+            <label><span>申請項目</span><select value={detailDraft.application_item_id} onChange={(e) => updateDetailDraft({ application_item_id: e.target.value })}>{data.applicationItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label><span>項目金額</span><input value={detailDraft.amount} onChange={(e) => updateDetailDraft({ amount: e.target.value })} /></label>
+            <label className="full-span"><span>修正原因 / 備註</span><textarea value={detailDraft.reason} onChange={(e) => updateDetailDraft({ reason: e.target.value })} /></label>
           </div>
           <div className="form-actions"><button className="danger-button" onClick={submitCorrection}>儲存修正</button></div>
         </Modal>
