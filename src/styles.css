@@ -603,3 +603,154 @@ input[type="checkbox"] {
 .inline-error { display:block; margin-top:4px; color:var(--danger); font-size:12px; font-weight:700; }
 .account-warning { margin-top:8px; color:var(--danger); font-weight:800; }
 .payment-account-option-text { font-size:12px; color:var(--muted); margin-top:6px; }
+
+/* V31 payment page broker grouping */
+.payment-page { align-items: stretch; }
+.payment-search-card { padding: 14px 16px; }
+.payment-search-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.payment-broker-groups {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+}
+.broker-payment-card {
+  width: 100%;
+  background: #fff;
+  border: 1px solid rgba(39, 84, 138, .13);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 14px 34px rgba(39, 84, 138, .08);
+  min-width: 0;
+}
+.broker-payment-head {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  border-bottom: 1px solid #edf0e6;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+.broker-payment-head h2 {
+  margin: 0;
+  color: var(--blue);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: .4px;
+}
+.broker-payment-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.broker-payment-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(96px, auto));
+  gap: 8px;
+}
+.broker-payment-metrics span {
+  display: grid;
+  gap: 4px;
+  min-width: 96px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fbfcf8;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.broker-payment-metrics strong {
+  color: var(--blue);
+  font-size: 16px;
+  white-space: nowrap;
+}
+.broker-account-summary {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr .7fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.broker-account-summary > div {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f4f8ff;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.broker-account-summary .summary-label {
+  display: block;
+  color: #4274D9;
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+.broker-account-summary strong {
+  display: inline-block;
+  color: #30364F;
+  font-size: 15px;
+  word-break: break-word;
+}
+.default-account-pill {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff8ee;
+  color: #b56e15;
+  border: 1px solid #f4ae52;
+  font-size: 11px;
+  font-weight: 900;
+  vertical-align: middle;
+}
+.broker-account-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.broker-payment-panel {
+  grid-template-columns: minmax(145px, .7fr) minmax(145px, .8fr) minmax(260px, 1.3fr) minmax(120px, .55fr) auto;
+  margin-bottom: 12px;
+}
+.broker-payment-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.broker-payment-table-wrap {
+  border: 1px solid #edf0e6;
+  border-radius: 14px;
+  overflow: auto;
+  max-height: 58vh;
+}
+.broker-payment-table-wrap .data-table {
+  min-width: 980px;
+}
+
+@media (max-width: 1100px) {
+  .broker-payment-head,
+  .broker-account-summary,
+  .payment-search-toolbar,
+  .broker-payment-panel {
+    grid-template-columns: 1fr;
+  }
+  .broker-payment-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .broker-payment-card { padding: 13px; border-radius: 16px; }
+  .broker-payment-metrics { grid-template-columns: 1fr; }
+  .broker-account-list { grid-template-columns: 1fr; }
+  .broker-payment-buttons { flex-direction: column; align-items: stretch; }
+  .broker-payment-buttons button { width: 100%; justify-content: center; }
+}

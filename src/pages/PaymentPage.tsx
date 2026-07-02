@@ -27,25 +27,34 @@ function accountLabel(account: BankAccount, data: ArcData) {
   return `${broker?.name ?? ''}｜${account.account_name}｜後五碼 ${last5}｜餘額 ${formatMoney(account.current_balance)}`;
 }
 
+function shortAccountLabel(account: BankAccount) {
+  const last5 = account.account_last5 ?? account.account_no.slice(-5);
+  return `${account.account_name}｜後五碼 ${last5}`;
+}
+
 function getAutoAccountId(accounts: BankAccount[]) {
   if (accounts.length === 1) return accounts[0].id;
   const defaultAccount = accounts.find((account) => account.is_default);
   return defaultAccount?.id ?? '';
 }
 
+interface BrokerPaymentMeta {
+  paymentDate?: string;
+  payerName?: string;
+}
+
 export function PaymentPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
   const [keyword, setKeyword] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [brokerId, setBrokerId] = useState('');
-  const [accountId, setAccountId] = useState('');
-  const [payerName, setPayerName] = useState(profile?.display_name ?? '');
-  const [paymentDate, setPaymentDate] = useState(todayTaipei());
+  const [defaultPaymentDate] = useState(todayTaipei());
   const [cancelTarget, setCancelTarget] = useState<ArcCase | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [amountErrors, setAmountErrors] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
+  const [accountIdsByBroker, setAccountIdsByBroker] = useState<Record<string, string>>({});
+  const [paymentMetaByBroker, setPaymentMetaByBroker] = useState<Record<string, BrokerPaymentMeta>>({});
+  const [submittingBrokerId, setSubmittingBrokerId] = useState<string | null>(null);
 
   const pendingCases = useMemo(() => data.cases.filter((caseRow) =>
     caseRow.status === 'pending_payment' && rowMatchesKeyword(keyword, [caseRow.employer_name, caseRow.worker_name, caseRow.group_no, caseRow.case_no])
@@ -55,37 +64,60 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     caseRow.status === 'cancelled' && rowMatchesKeyword(keyword, [caseRow.employer_name, caseRow.worker_name, caseRow.group_no, caseRow.case_no])
   ), [data.cases, keyword]);
 
-  const selectedCases = pendingCases.filter((item) => selectedIds.includes(item.id));
-  const selectedBrokerIds = Array.from(new Set(selectedCases.map((item) => item.broker_id)));
-  const filteredAccounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === brokerId);
-  const selectedAccount = data.accounts.find((item) => item.id === accountId);
-
   function amountForCase(row: ArcCase) {
     return strictPaymentAmount(amountDrafts[row.id] ?? String(row.amount ?? 0)) ?? 0;
   }
 
-  const total = selectedCases.reduce((sum, item) => sum + amountForCase(item), 0);
-  const accountWarning = brokerId && filteredAccounts.length === 0
-    ? '此仲介尚未設定扣款帳號，請先至系統設定新增帳戶。'
-    : '';
-  const multiAccountNotice = brokerId && filteredAccounts.length > 1 && !filteredAccounts.some((account) => account.is_default)
-    ? '此仲介有多個啟用帳戶，請選擇本次扣款帳號。'
-    : '';
+  function getBrokerMeta(brokerId: string) {
+    const meta = paymentMetaByBroker[brokerId] ?? {};
+    return {
+      paymentDate: meta.paymentDate ?? defaultPaymentDate,
+      payerName: meta.payerName ?? profile?.display_name ?? ''
+    };
+  }
+
+  function updateBrokerMeta(brokerId: string, patch: BrokerPaymentMeta) {
+    setPaymentMetaByBroker((current) => ({
+      ...current,
+      [brokerId]: { ...(current[brokerId] ?? {}), ...patch }
+    }));
+  }
 
   useEffect(() => {
-    if (!brokerId) {
-      setAccountId('');
-      return;
-    }
-    const accounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === brokerId);
-    setAccountId((current) => {
-      if (current && accounts.some((account) => account.id === current)) return current;
-      return getAutoAccountId(accounts);
+    setAccountIdsByBroker((current) => {
+      const next = { ...current };
+      for (const broker of data.brokers.filter((item) => item.is_enabled)) {
+        const accounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === broker.id);
+        const currentAccountId = current[broker.id];
+        if (currentAccountId && accounts.some((account) => account.id === currentAccountId)) continue;
+        const autoAccountId = getAutoAccountId(accounts);
+        if (autoAccountId) next[broker.id] = autoAccountId;
+        else delete next[broker.id];
+      }
+      return next;
     });
-  }, [brokerId, data.accounts]);
+  }, [data.accounts, data.brokers]);
+
+  const brokerGroups = useMemo(() => data.brokers
+    .filter((broker) => broker.is_enabled)
+    .map((broker) => {
+      const cases = pendingCases.filter((caseRow) => caseRow.broker_id === broker.id);
+      const accounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === broker.id);
+      const selectedCases = cases.filter((caseRow) => selectedIds.includes(caseRow.id));
+      const selectedAccountId = accountIdsByBroker[broker.id] ?? getAutoAccountId(accounts);
+      const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? null;
+      const pendingTotal = cases.reduce((sum, caseRow) => sum + amountForCase(caseRow), 0);
+      const selectedTotal = selectedCases.reduce((sum, caseRow) => sum + amountForCase(caseRow), 0);
+      const accountWarning = accounts.length === 0 ? '此仲介尚未設定扣款帳號，請先至系統設定新增帳戶。' : '';
+      const multiAccountNotice = accounts.length > 1 && !accounts.some((account) => account.is_default)
+        ? '此仲介有多個啟用帳戶，請選擇本次扣款帳號。'
+        : '';
+      return { broker, cases, accounts, selectedCases, selectedAccountId, selectedAccount, pendingTotal, selectedTotal, accountWarning, multiAccountNotice };
+    })
+    .filter((group) => group.cases.length > 0), [accountIdsByBroker, amountDrafts, data.accounts, data.brokers, pendingCases, selectedIds]);
 
   async function copyAccount(account: BankAccount) {
-    if (brokerId && account.broker_id === brokerId) setAccountId(account.id);
+    setAccountIdsByBroker((current) => ({ ...current, [account.broker_id]: account.id }));
     try {
       await navigator.clipboard.writeText(account.account_no);
       pushToast({ type: 'success', title: '已複製銀行帳號', message: account.account_no });
@@ -94,28 +126,26 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     }
   }
 
+  function setBrokerAccountId(brokerId: string, accountId: string) {
+    setAccountIdsByBroker((current) => ({ ...current, [brokerId]: accountId }));
+  }
+
   function toggle(row: ArcCase) {
-    const nextSelected = selectedIds.includes(row.id) ? selectedIds.filter((id) => id !== row.id) : [...selectedIds, row.id];
-    const nextCases = pendingCases.filter((item) => nextSelected.includes(item.id));
-    const nextBrokerIds = Array.from(new Set(nextCases.map((item) => item.broker_id)));
-    if (nextBrokerIds.length > 1) {
-      pushToast({ type: 'warning', title: '同一批繳費只能選同一仲介' });
-      return;
-    }
-    setSelectedIds(nextSelected);
-    setBrokerId(nextBrokerIds[0] ?? '');
+    setSelectedIds((current) => current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]);
   }
 
   function selectBrokerCases(targetBrokerId: string) {
     const ids = pendingCases.filter((item) => item.broker_id === targetBrokerId).map((item) => item.id);
-    setSelectedIds(ids);
-    setBrokerId(targetBrokerId);
+    setSelectedIds((current) => Array.from(new Set([...current, ...ids])));
+  }
+
+  function clearBrokerSelection(targetBrokerId: string) {
+    const ids = new Set(pendingCases.filter((item) => item.broker_id === targetBrokerId).map((item) => item.id));
+    setSelectedIds((current) => current.filter((id) => !ids.has(id)));
   }
 
   function clearSelected() {
     setSelectedIds([]);
-    setBrokerId('');
-    setAccountId('');
   }
 
   function changeAmount(row: ArcCase, value: string) {
@@ -155,10 +185,16 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     }
   }
 
-  async function submitBatch() {
-    if (!selectedIds.length) return pushToast({ type: 'warning', title: '請先勾選待繳案件' });
-    if (selectedBrokerIds.length !== 1) return pushToast({ type: 'warning', title: '同一批繳費只能選同一仲介' });
-    if (accountWarning) return pushToast({ type: 'warning', title: accountWarning });
+  async function submitBrokerBatch(brokerId: string) {
+    const broker = data.brokers.find((item) => item.id === brokerId);
+    const selectedCases = pendingCases.filter((caseRow) => caseRow.broker_id === brokerId && selectedIds.includes(caseRow.id));
+    const accountId = accountIdsByBroker[brokerId] ?? '';
+    const selectedAccount = data.accounts.find((item) => item.id === accountId && item.is_enabled);
+    const accounts = data.accounts.filter((item) => item.is_enabled && item.broker_id === brokerId);
+    const { paymentDate, payerName } = getBrokerMeta(brokerId);
+
+    if (!selectedCases.length) return pushToast({ type: 'warning', title: `請先勾選${broker?.name ?? '此仲介'}待繳案件` });
+    if (accounts.length === 0) return pushToast({ type: 'warning', title: '此仲介尚未設定扣款帳號，請先至系統設定新增帳戶。' });
     if (!accountId) return pushToast({ type: 'warning', title: '請選擇扣款帳號' });
     if (!selectedAccount || selectedAccount.broker_id !== brokerId) return pushToast({ type: 'warning', title: '請選擇該仲介的扣款帳號' });
     const invalidCase = selectedCases.find((caseRow) => strictPaymentAmount(amountDrafts[caseRow.id] ?? String(caseRow.amount ?? 0)) === null);
@@ -167,18 +203,27 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
       return pushToast({ type: 'warning', title: '金額格式不正確，請重新輸入。', message: invalidCase.case_no });
     }
     const amountOverrides = Object.fromEntries(selectedCases.map((caseRow) => [caseRow.id, amountForCase(caseRow)]));
-    setSubmitting(true);
+    const total = selectedCases.reduce((sum, caseRow) => sum + amountForCase(caseRow), 0);
+    setSubmittingBrokerId(brokerId);
     try {
-      await createPaymentBatch({ caseIds: selectedIds, brokerId, accountId, paymentDate, payerName, data, actor: profile, amountOverrides });
-      pushToast({ type: 'success', title: '繳費批次已建立', message: `共 ${selectedIds.length} 筆，金額 ${formatMoney(total)} 元。` });
-      clearSelected();
-      setAmountDrafts({});
-      setAmountErrors({});
+      await createPaymentBatch({ caseIds: selectedCases.map((caseRow) => caseRow.id), brokerId, accountId, paymentDate, payerName, data, actor: profile, amountOverrides });
+      pushToast({ type: 'success', title: `${broker?.name ?? '此仲介'}繳費批次已建立`, message: `共 ${selectedCases.length} 筆，金額 ${formatMoney(total)} 元。` });
+      clearBrokerSelection(brokerId);
+      setAmountDrafts((current) => {
+        const next = { ...current };
+        for (const caseRow of selectedCases) delete next[caseRow.id];
+        return next;
+      });
+      setAmountErrors((current) => {
+        const next = { ...current };
+        for (const caseRow of selectedCases) delete next[caseRow.id];
+        return next;
+      });
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '建立批次失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
-      setSubmitting(false);
+      setSubmittingBrokerId(null);
     }
   }
 
@@ -242,12 +287,12 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   const columns = [
     { key: 'check', title: '選取', render: (row: ArcCase) => <input type="checkbox" checked={selectedIds.includes(row.id)} onChange={() => toggle(row)} /> },
     { key: 'case_no', title: '案件編號', render: (row: ArcCase) => row.case_no },
-    { key: 'broker', title: '仲介', render: (row: ArcCase) => data.brokers.find((item) => item.id === row.broker_id)?.name ?? '' },
     { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name },
     { key: 'employer', title: '雇主', render: (row: ArcCase) => row.employer_name },
     { key: 'worker', title: '工人', render: (row: ArcCase) => row.worker_name },
     { key: 'group', title: '團號', render: (row: ArcCase) => row.group_no ?? '' },
     { key: 'item', title: '申請項目', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '' },
+    { key: 'date', title: '申請日 / 收費日期', render: (row: ArcCase) => row.application_date ?? '' },
     { key: 'amount', title: '金額', render: (row: ArcCase) => <div className="amount-edit-wrap"><input className={`mini-input payment-amount-field ${amountErrors[row.id] ? 'error' : ''}`} inputMode="decimal" value={amountDrafts[row.id] ?? String(row.amount ?? 0)} onChange={(event) => changeAmount(row, event.target.value)} onBlur={() => saveAmount(row)} disabled={!profile} />{amountErrors[row.id] ? <span className="inline-error">{amountErrors[row.id]}</span> : null}</div> },
     { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal"><button className="danger-link" type="button" onClick={() => setCancelTarget(row)}>取消繳費</button>{canDeleteData(profile?.role) ? <button className="danger-link" type="button" onClick={() => removePending(row)}>刪除</button> : null}</div> }
   ];
@@ -262,46 +307,82 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   ];
 
   return (
-    <div className="page-content">
-      <PageHeader title="居留證繳費" description="待繳案件依仲介分開；同一批繳費只能選同一仲介。" />
+    <div className="page-content payment-page">
+      <PageHeader title="居留證繳費" description="待繳案件依仲介分區顯示；每個仲介區塊可獨立選帳戶、勾選與扣款。" />
       <AnnouncementBanner items={data.announcements} page="居留證繳費" />
-      <section className="card full-width-card">
-        <div className="search-toolbar">
+      <section className="card full-width-card payment-search-card">
+        <div className="search-toolbar payment-search-toolbar">
           <SearchInput id="pendingPaymentSearch" value={keyword} onCommit={setKeyword} placeholder="搜尋待繳案件：雇主、工人、團號、案件編號" />
-        </div>
-        <div className="broker-action-row">
-          {data.brokers.filter((item) => item.is_enabled).map((broker) => (
-            <button key={broker.id} className="secondary-button" type="button" onClick={() => selectBrokerCases(broker.id)}>{broker.name} 一鍵勾選</button>
-          ))}
-          <button className="ghost-button" type="button" onClick={clearSelected}>一鍵取消</button>
-        </div>
-
-        <div className="account-balance-strip">
-          <h3>仲介銀行帳戶餘額</h3>
-          <div className="account-balance-grid compact">
-            {data.accounts.filter((account) => !brokerId || account.broker_id === brokerId).map((account) => (
-              <button type="button" className={`balance-card copy-card ${account.id === accountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號；若已選仲介也會選定此扣款帳號">
-                <span>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</span>
-                <strong>{formatMoney(account.current_balance)}</strong>
-                <small>點擊複製帳號{brokerId && account.broker_id === brokerId ? ' / 選定扣款帳號' : ''}</small>
-              </button>
-            ))}
-          </div>
-          {selectedAccount ? <p className="selected-balance-text">目前選擇帳戶餘額：{formatMoney(selectedAccount.current_balance)} 元</p> : null}
-          {accountWarning ? <p className="account-warning">{accountWarning}</p> : null}
-        </div>
-        <div className="payment-panel">
-          <label><span>繳費日期</span><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} /></label>
-          <label><span>繳款人</span><input value={payerName} onChange={(e) => setPayerName(e.target.value)} /></label>
-          <label><span>仲介</span><select value={brokerId} onChange={(e) => { setBrokerId(e.target.value); setSelectedIds([]); }}><option value="">請由勾選案件帶入</option>{data.brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.name}</option>)}</select></label>
-          <label><span>扣款帳號</span><select value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">請選擇</option>{filteredAccounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</option>)}</select>{multiAccountNotice ? <small className="payment-account-option-text">{multiAccountNotice}</small> : null}</label>
-          <div className="payment-summary"><span>已選 {selectedIds.length} 件</span><strong>{formatMoney(total)} 元</strong></div>
-          <button className="primary-button" onClick={submitBatch} disabled={submitting}>建立繳費批次</button>
-        </div>
-        <div className="result-area scroll-result">
-          <DataTable columns={columns} rows={pendingCases} rowKey={(row) => row.id} emptyText="沒有待繳案件" />
+          <button className="ghost-button" type="button" onClick={clearSelected}>全部取消勾選</button>
         </div>
       </section>
+
+      <div className="payment-broker-groups">
+        {brokerGroups.length ? brokerGroups.map((group) => {
+          const { broker, cases, accounts, selectedCases, selectedAccount, selectedAccountId, pendingTotal, selectedTotal, accountWarning, multiAccountNotice } = group;
+          const meta = getBrokerMeta(broker.id);
+          return (
+            <section className="broker-payment-card" key={broker.id}>
+              <div className="broker-payment-head">
+                <div>
+                  <h2>{broker.name}</h2>
+                  <p>本區只顯示 {broker.name} 的待繳案件，扣款只會使用本區選定帳戶。</p>
+                </div>
+                <div className="broker-payment-metrics">
+                  <span>待繳件數<strong>{cases.length} 件</strong></span>
+                  <span>待繳總金額<strong>{formatMoney(pendingTotal)} 元</strong></span>
+                  <span>已選金額<strong>{formatMoney(selectedTotal)} 元</strong></span>
+                </div>
+              </div>
+
+              <div className="broker-account-summary">
+                <div>
+                  <span className="summary-label">扣款帳號</span>
+                  <strong>{selectedAccount ? shortAccountLabel(selectedAccount) : '尚未選擇扣款帳號'}</strong>
+                  {selectedAccount?.is_default ? <small className="default-account-pill">預設帳戶</small> : null}
+                </div>
+                <div>
+                  <span className="summary-label">目前餘額</span>
+                  <strong>{selectedAccount ? `${formatMoney(selectedAccount.current_balance)} 元` : '-'}</strong>
+                </div>
+                <div>
+                  <span className="summary-label">本區選取</span>
+                  <strong>{selectedCases.length} 件</strong>
+                </div>
+              </div>
+
+              {accounts.length ? (
+                <div className="broker-account-list">
+                  {accounts.map((account) => (
+                    <button type="button" className={`balance-card copy-card ${account.id === selectedAccountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號並選定本區扣款帳號">
+                      <span>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</span>
+                      <strong>{formatMoney(account.current_balance)}</strong>
+                      <small>點擊複製帳號 / 選定本區扣款帳號</small>
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="account-warning">{accountWarning}</p>}
+
+              <div className="payment-panel broker-payment-panel">
+                <label><span>繳費日期</span><input type="date" value={meta.paymentDate} onChange={(e) => updateBrokerMeta(broker.id, { paymentDate: e.target.value })} /></label>
+                <label><span>繳款人</span><input value={meta.payerName} onChange={(e) => updateBrokerMeta(broker.id, { payerName: e.target.value })} /></label>
+                <label><span>扣款帳號</span><select value={selectedAccountId} onChange={(e) => setBrokerAccountId(broker.id, e.target.value)}><option value="">請選擇</option>{accounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</option>)}</select>{multiAccountNotice ? <small className="payment-account-option-text">{multiAccountNotice}</small> : null}</label>
+                <div className="payment-summary"><span>本區已選 {selectedCases.length} 件</span><strong>{formatMoney(selectedTotal)} 元</strong></div>
+                <div className="broker-payment-buttons">
+                  <button className="secondary-button" type="button" onClick={() => selectBrokerCases(broker.id)}>本區一鍵勾選</button>
+                  <button className="ghost-button" type="button" onClick={() => clearBrokerSelection(broker.id)}>本區取消</button>
+                  <button className="primary-button" onClick={() => submitBrokerBatch(broker.id)} disabled={submittingBrokerId === broker.id}>{submittingBrokerId === broker.id ? '建立中...' : `${broker.name} 繳費扣款`}</button>
+                </div>
+              </div>
+
+              <div className="result-area scroll-result broker-payment-table-wrap">
+                <DataTable columns={columns} rows={cases} rowKey={(row) => row.id} emptyText={`此仲介目前無符合資料`} />
+              </div>
+            </section>
+          );
+        }) : <section className="card full-width-card empty-state">目前沒有符合條件的待繳案件</section>}
+      </div>
+
       <section className="card full-width-card">
         <h2>取消案件 / 可恢復待繳</h2>
         <DataTable columns={cancelledColumns} rows={cancelledCases} rowKey={(row) => row.id} emptyText="目前沒有取消案件" />
