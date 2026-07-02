@@ -367,7 +367,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
 
   return (
     <div className="page-content finance-page">
-      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可調整帳戶餘額與完成對帳；行政可進行項目金額錯誤單筆修正。" />
+      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可調整帳戶餘額與完成對帳；行政可修改批次明細與項目金額錯誤，但不可刪除或完成對帳。" />
 
       <div className="receipt-path-note">收據存放路徑：Z:\行政\$移民署繳費</div>
 

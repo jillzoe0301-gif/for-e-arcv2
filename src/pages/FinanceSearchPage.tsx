@@ -218,7 +218,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
     }
   }
 
-  const canEditFinanceDetail = profile?.role === 'admin' || profile?.role === 'finance';
+  const canEditFinanceDetail = profile?.role === 'admin' || profile?.role === 'finance' || profile?.role === 'staff';
 
   function openDetailEditor(batch: PaymentBatch, row: FinanceBatchDetailRow) {
     const itemId = row.item.corrected_application_item_id ?? row.caseRow.application_item_id;
@@ -307,7 +307,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
 
   return (
     <div className="page-content finance-query-page">
-      <PageHeader title="財務查詢" description="已完成對帳的繳費批次會在此查詢，可展開查看批次內案件明細。" />
+      <PageHeader title="財務查詢" description="已完成對帳的繳費批次會在此查詢，可展開查看批次內案件明細；管理員、會計與行政可修改明細，僅管理員可刪除。" />
       <section className="card full-width-card no-compress finance-batch-query-card">
         <div className="search-toolbar finance-toolbar">
           <SearchInput id="financeKeywordSearch" value={keyword} onCommit={setKeyword} placeholder="批次編號 / 繳款人 / 仲介 / 帳戶 / 雇主 / 工人 / 團號 / 申請項目" />

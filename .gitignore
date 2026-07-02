@@ -144,3 +144,11 @@ dist
 *.zip
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+.env
+.env.local
+node_modules
+dist
+*.zip
+tsconfig.tsbuildinfo
+*.tsbuildinfo

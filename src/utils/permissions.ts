@@ -5,7 +5,7 @@ const pageRoles: Record<PageKey, Role[]> = {
   registration: ['admin', 'staff'],
   payment: ['admin', 'staff'],
   financeConfirm: ['admin', 'finance', 'staff'],
-  financeSearch: ['admin', 'finance'],
+  financeSearch: ['admin', 'finance', 'staff'],
   faxPickup: ['admin', 'staff'],
   caseSearch: ['admin', 'staff'],
   stats: ['admin', 'staff'],
