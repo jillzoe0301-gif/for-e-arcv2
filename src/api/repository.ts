@@ -445,8 +445,23 @@ export async function confirmPaymentBatch(batch: PaymentBatch, actor: Profile | 
     page_name: '財務對帳確認',
     record_table: 'payment_batches',
     record_id: batch.id,
-    old_data: batch,
-    new_data: patch
+    old_data: {
+      繳費批次編號: batch.batch_no,
+      原狀態: batch.status,
+      批次案件數: batch.case_count,
+      批次總金額: batch.total_amount,
+      原始資料: batch
+    },
+    new_data: {
+      繳費批次編號: batch.batch_no,
+      新狀態: '對帳完成',
+      對帳確認人: actor?.display_name,
+      對帳完成時間: patch.confirmed_at,
+      批次案件數: batch.case_count,
+      批次總金額: batch.total_amount,
+      更新資料: patch
+    },
+    reason: '財務對帳完成後，同一筆繳費批次轉入財務查詢。'
   });
 }
 

@@ -4,7 +4,7 @@ import { getVisibleAnnouncements } from '../components/AnnouncementBanner';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../context/ToastContext';
 import type { AnnouncementItem, ArcData, Profile } from '../types';
-import { todayTaipei, taipeiWeekday } from '../utils/date';
+import { monthKey, todayTaipei, taipeiWeekday } from '../utils/date';
 import { IconImage } from '../utils/icons';
 import { formatMoney } from '../utils/number';
 import { canManageAnnouncements } from '../utils/permissions';
@@ -118,7 +118,13 @@ export function DashboardPage({ data, profile, reload }: { data: ArcData; profil
   const pendingPayment = data.cases.filter((item) => item.status === 'pending_payment').length;
   const pendingPickup = data.cases.filter((item) => item.status === 'pending_pickup' || item.status === 'not_received').length;
   const cancelled = data.cases.filter((item) => item.status === 'cancelled').length;
-  const pendingBatch = data.batches.filter((item) => item.status === 'pending' || item.status === 'amount_error').length;
+  const activeBatches = data.batches.filter((item) => !item.deleted_at);
+  const pendingBatch = activeBatches.filter((item) => item.status === 'pending' || item.status === 'amount_error').length;
+  const confirmedBatch = activeBatches.filter((item) => item.status === 'confirmed').length;
+  const today = todayTaipei();
+  const currentMonth = monthKey(today);
+  const todayBatchCount = activeBatches.filter((item) => item.payment_date === today).length;
+  const monthBatchCount = activeBatches.filter((item) => monthKey(item.payment_date) === currentMonth).length;
   const weekday = taipeiWeekday();
   const chipResidenceUrl = String(data.settings.find((item) => item.setting_group === 'links' && item.setting_key === 'chip_residence_query')?.setting_value?.url ?? 'https://niaicinfo.immigration.gov.tw/icinfo-frontend/zh#MyAnchor');
   const externalLinks = [
@@ -131,14 +137,23 @@ export function DashboardPage({ data, profile, reload }: { data: ArcData; profil
 
   return (
     <div className="page-content">
-      <PageHeader title="總覽" description={`今日：${todayTaipei()}（Asia/Taipei）`} />
+      <PageHeader title="總覽" description={`今日：${today}（Asia/Taipei）`} />
       <DashboardAnnouncementEditor announcements={data.announcements} profile={profile} reload={reload} />
-      <div className="dashboard-grid">
-        <div className="stat-card icon-stat-card"><IconImage name="居留證繳費" size={28} /><span>待繳案件</span><strong>{pendingPayment}</strong></div>
-        <div className="stat-card icon-stat-card"><IconImage name="傳真/領件" size={28} /><span>待傳真/領件</span><strong>{pendingPickup}</strong></div>
-        <div className="stat-card icon-stat-card"><IconImage name="財務對帳確認" size={28} /><span>待財務對帳</span><strong>{pendingBatch}</strong></div>
-        <div className="stat-card danger icon-stat-card"><IconImage name="案件查詢" size={28} /><span>取消案件</span><strong>{cancelled}</strong></div>
-      </div>
+      {profile?.role === 'finance' ? (
+        <div className="dashboard-grid finance-dashboard-grid">
+          <div className="stat-card icon-stat-card"><IconImage name="財務對帳確認" size={28} /><span>待對帳批次數</span><strong>{pendingBatch}</strong></div>
+          <div className="stat-card icon-stat-card"><IconImage name="財務查詢" size={28} /><span>已對帳批次數</span><strong>{confirmedBatch}</strong></div>
+          <div className="stat-card icon-stat-card"><IconImage name="財務查詢" size={28} /><span>今日繳費批次</span><strong>{todayBatchCount}</strong></div>
+          <div className="stat-card icon-stat-card"><IconImage name="匯出資料" size={28} /><span>本月繳費批次</span><strong>{monthBatchCount}</strong></div>
+        </div>
+      ) : (
+        <div className="dashboard-grid">
+          <div className="stat-card icon-stat-card"><IconImage name="居留證繳費" size={28} /><span>待繳案件</span><strong>{pendingPayment}</strong></div>
+          <div className="stat-card icon-stat-card"><IconImage name="傳真/領件" size={28} /><span>待傳真/領件</span><strong>{pendingPickup}</strong></div>
+          <div className="stat-card icon-stat-card"><IconImage name="財務對帳確認" size={28} /><span>待財務對帳</span><strong>{pendingBatch}</strong></div>
+          <div className="stat-card danger icon-stat-card"><IconImage name="案件查詢" size={28} /><span>取消案件</span><strong>{cancelled}</strong></div>
+        </div>
+      )}
       <section className="card reminder-section">
         <div className="plain-card-title"><h2>提醒事項</h2></div>
         <div className="reminder-row quality-reminders">

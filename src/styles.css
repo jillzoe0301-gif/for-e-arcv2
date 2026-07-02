@@ -754,3 +754,52 @@ input[type="checkbox"] {
   .broker-payment-buttons { flex-direction: column; align-items: stretch; }
   .broker-payment-buttons button { width: 100%; justify-content: center; }
 }
+
+/* V33 財務查詢批次式顯示 */
+.finance-batch-query-card { width: 100%; max-width: none; }
+.finance-batch-list { display: grid; gap: 14px; width: 100%; }
+.finance-batch-card {
+  border: 1px solid rgba(39,84,138,.13);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(39,84,138,.07);
+  overflow: hidden;
+}
+.finance-batch-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+}
+.finance-batch-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.finance-batch-title strong { color: var(--blue); font-size: 17px; letter-spacing: .3px; }
+.batch-expand-button { color: var(--blue); text-decoration: none; background: #edf4ff; border: 1px solid #c9ddff; }
+.finance-batch-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 12px;
+}
+.finance-batch-meta span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  background: #fbfcf8;
+  border: 1px solid #edf0e6;
+  border-radius: 12px;
+  color: var(--text);
+}
+.finance-batch-meta b { color: var(--blue); font-size: 12px; }
+.finance-batch-detail { padding: 0 14px 14px; }
+.finance-dashboard-grid .stat-card { min-height: 118px; }
+
+@media (max-width: 760px) {
+  .finance-batch-summary { grid-template-columns: 1fr; }
+  .finance-batch-summary > .danger-button { justify-self: start; }
+}

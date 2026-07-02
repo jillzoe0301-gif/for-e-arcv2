@@ -18,7 +18,10 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const [correctedAmount, setCorrectedAmount] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
 
-  const batches = useMemo(() => data.batches.filter((item) => item.deleted_at == null), [data.batches]);
+  const batches = useMemo(() => data.batches
+    .filter((item) => item.deleted_at == null)
+    .filter((item) => item.status === 'pending' || item.status === 'amount_error')
+    .sort((a, b) => `${b.payment_date}${b.batch_no}`.localeCompare(`${a.payment_date}${a.batch_no}`)), [data.batches]);
   const selectedBatch = batches.find((item) => item.id === selectedBatchId) ?? batches[0];
   const batchItems = selectedBatch ? data.batchItems.filter((item) => item.batch_id === selectedBatch.id) : [];
   const details = batchItems.map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) })).filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
@@ -105,8 +108,8 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     <div className="page-content finance-page">
       <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可使用。" />
       <section className="card full-width-card">
-        <h2>繳費批次</h2>
-        <DataTable columns={batchColumns} rows={batches} rowKey={(row) => row.id} emptyText="目前沒有繳費批次" />
+        <h2>待對帳繳費批次</h2>
+        <DataTable columns={batchColumns} rows={batches} rowKey={(row) => row.id} emptyText="目前沒有待對帳繳費批次" />
       </section>
       {selectedBatch ? (
         <section className="card full-width-card">
@@ -117,7 +120,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
             <div><span>帳戶名稱</span><strong>{data.accounts.find((item) => item.id === selectedBatch.account_id)?.account_name}</strong></div>
           </div>
           <div className="toolbar-row">
-            <button className="primary-button" onClick={() => completeBatch(selectedBatch)}>對帳完成</button>
+            <button className="primary-button" onClick={() => completeBatch(selectedBatch)}>對帳完成並轉入財務查詢</button>
             <span className="subtle-text">項目金額錯誤請在單筆明細右側修正。</span>
           </div>
           <DataTable columns={detailColumns} rows={details} rowKey={(row) => row.item.id} emptyText="此批次沒有明細" />

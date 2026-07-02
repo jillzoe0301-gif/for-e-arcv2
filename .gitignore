@@ -88,3 +88,11 @@ dist
 *.orig
 *.tsbuildinfo
 arc-cleanup-v32-*.log
+
+.env
+.env.local
+node_modules
+dist
+*.zip
+tsconfig.tsbuildinfo
+*.tsbuildinfo

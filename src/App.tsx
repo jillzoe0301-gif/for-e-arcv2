@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppShell, navItems } from './components/AppShell';
 import { useAuth } from './context/AuthContext';
 import { useToast } from './context/ToastContext';
@@ -25,6 +25,7 @@ export function App() {
   const { loading: authLoading, profile, signOut } = useAuth();
   const { pushToast } = useToast();
   const [currentPage, setCurrentPage] = useState<PageKey>('dashboard');
+  const lastBlockedPageRef = useRef<PageKey | null>(null);
   const { data, loading, error, reload } = useArcData(Boolean(profile));
 
   useEffect(() => {
@@ -33,10 +34,14 @@ export function App() {
 
   useEffect(() => {
     if (profile && !canAccessPage(profile.role, currentPage)) {
+      if (lastBlockedPageRef.current !== currentPage) {
+        pushToast({ type: 'warning', title: '您沒有進入此功能的權限。' });
+        lastBlockedPageRef.current = currentPage;
+      }
       const first = navItems.find((item) => canAccessPage(profile.role, item.key));
       setCurrentPage(first?.key ?? 'dashboard');
     }
-  }, [currentPage, profile]);
+  }, [currentPage, profile, pushToast]);
 
   if (authLoading) return <div className="loading-screen">載入中...</div>;
   if (!profile) return <LoginPage />;

@@ -1,0 +1,4 @@
+ARC V13 V33 build check
+- npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
+- npm run build
+Result: success

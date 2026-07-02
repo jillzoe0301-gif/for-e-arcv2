@@ -59,13 +59,17 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
       </section>
       <section className="card full-width-card">
         <h2>扣款帳號 / 餘額</h2>
+        <p className="subtle-text">會計角色可查看仲介、扣款帳號與餘額；不可直接手動調整帳戶餘額或刪除帳戶。</p>
         <DataTable columns={[
           { key: 'broker', title: '所屬仲介', render: (row: BankAccount) => data.brokers.find((item) => item.id === row.broker_id)?.name ?? '' },
           { key: 'account', title: '帳戶名稱', render: (row: BankAccount) => row.account_name },
           { key: 'bank', title: '銀行', render: (row: BankAccount) => `${row.bank_name} ${row.bank_code}` },
-          { key: 'no', title: '帳號', render: (row: BankAccount) => <button type="button" className="copy-text-button" onClick={() => copyAccount(row)} title="點擊複製銀行帳號">{row.account_no}</button> },
+          { key: 'last5', title: '帳號後五碼', render: (row: BankAccount) => row.account_last5 ?? row.account_no.slice(-5) },
+          { key: 'no', title: '完整帳號', render: (row: BankAccount) => <button type="button" className="copy-text-button" onClick={() => copyAccount(row)} title="點擊複製銀行帳號">{row.account_no}</button> },
           { key: 'balance', title: '目前餘額', render: (row: BankAccount) => formatMoney(row.current_balance) },
-          { key: 'action', title: '操作', render: (row: BankAccount) => canAdjustBalance(profile?.role) ? <button className="secondary-button mini" onClick={() => open(row)}>調整餘額</button> : '無權限' }
+          { key: 'default', title: '預設帳戶', render: (row: BankAccount) => row.is_default ? '是' : '否' },
+          { key: 'enabled', title: '是否啟用', render: (row: BankAccount) => row.is_enabled ? '啟用' : '停用' },
+          { key: 'action', title: '操作', render: (row: BankAccount) => canAdjustBalance(profile?.role) ? <button className="secondary-button mini" onClick={() => open(row)}>調整餘額</button> : <span className="subtle-text">僅可查看</span> }
         ]} rows={data.accounts} rowKey={(row) => row.id} />
       </section>
       {target ? (
