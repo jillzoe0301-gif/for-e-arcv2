@@ -5,7 +5,7 @@ import { PageHeader } from '../components/PageHeader';
 import { SearchInput } from '../components/SearchInput';
 import { BatchStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
-import type { ArcCase, ArcData, PaymentBatch, PaymentBatchItem, Profile } from '../types';
+import type { AccountTransaction, ArcCase, ArcData, PaymentBatch, PaymentBatchItem, Profile } from '../types';
 import { displayDateTime, formatDate, monthKey } from '../utils/date';
 import { formatMoney } from '../utils/number';
 import { canDeleteData } from '../utils/permissions';
@@ -18,6 +18,7 @@ type FinanceBatchRow = {
   accountLast5: string;
   confirmedByName: string;
   details: Array<{ item: PaymentBatchItem; caseRow: ArcCase }>;
+  balanceTransactions: AccountTransaction[];
 };
 
 export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
@@ -48,13 +49,17 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
           .filter((item) => item.batch_id === batch.id)
           .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) }))
           .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
+        const balanceTransactions = data.accountTransactions
+          .filter((txn) => txn.ref_table === 'payment_batches' && txn.ref_id === batch.id)
+          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
         return {
           batch,
           brokerName: broker?.name ?? '',
           accountName: account ? `${account.bank_name}｜${account.account_name}` : '',
           accountLast5: account?.account_last5 ?? account?.account_no?.slice(-5) ?? '',
           confirmedByName: confirmedBy?.display_name ?? batch.confirmed_by ?? '',
-          details
+          details,
+          balanceTransactions
         };
       })
       .filter((row) => {
@@ -79,9 +84,17 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
           caseRow.note,
           item.correction_reason
         ]);
-        return rowMatchesKeyword(keyword, [...batchFields, ...detailFields]);
+        const transactionFields = row.balanceTransactions.flatMap((txn) => [
+          txn.txn_type,
+          txn.reason,
+          txn.balance_before,
+          txn.balance_after,
+          txn.amount,
+          data.profiles.find((profileItem) => profileItem.id === txn.created_by)?.display_name
+        ]);
+        return rowMatchesKeyword(keyword, [...batchFields, ...detailFields, ...transactionFields]);
       });
-  }, [allConfirmedBatches, data.accounts, data.applicationItems, data.batchItems, data.brokers, data.cases, data.profiles, keyword, month]);
+  }, [allConfirmedBatches, data.accountTransactions, data.accounts, data.applicationItems, data.batchItems, data.brokers, data.cases, data.profiles, keyword, month]);
 
   function toggleDetails(batchId: string) {
     setExpandedBatchIds((current) => {
@@ -156,6 +169,27 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
                 {isExpanded ? (
                   <div className="finance-batch-detail">
                     <DataTable columns={detailColumns} rows={row.details} rowKey={(detail) => detail.item.id} emptyText="此批次沒有明細" />
+                    <div className="finance-transaction-panel">
+                      <h3>本批次帳戶餘額異動紀錄</h3>
+                      {row.balanceTransactions.length ? (
+                        <div className="transaction-list">
+                          {row.balanceTransactions.map((txn) => {
+                            const actorName = data.profiles.find((profileItem) => profileItem.id === txn.created_by)?.display_name ?? txn.created_by ?? '';
+                            return (
+                              <div className="transaction-row" key={txn.id}>
+                                <span><b>類型</b>{txn.txn_type === 'finance_confirm_balance_adjustment' ? '手動修改餘額' : txn.txn_type}</span>
+                                <span><b>修改前餘額</b>{formatMoney(txn.balance_before)}</span>
+                                <span><b>修改後餘額</b>{formatMoney(txn.balance_after)}</span>
+                                <span><b>差額</b>{txn.amount >= 0 ? '增加 ' : '減少 '}{formatMoney(Math.abs(txn.amount))}</span>
+                                <span><b>調整原因</b>{txn.reason ?? ''}</span>
+                                <span><b>修改人</b>{actorName}</span>
+                                <span><b>修改時間</b>{displayDateTime(txn.created_at)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <p className="subtle-text">此批次尚無額外餘額修改紀錄。</p>}
+                    </div>
                   </div>
                 ) : null}
               </article>

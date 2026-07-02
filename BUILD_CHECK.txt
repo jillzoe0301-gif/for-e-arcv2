@@ -1,4 +1,4 @@
-ARC V13 V33 build check
-- npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
-- npm run build
-Result: success
+ARC V13 V34/V35 build check:
+- npm install completed
+- npm run build completed successfully in artifact generation environment
+- no new Supabase migration required

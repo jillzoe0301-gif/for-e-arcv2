@@ -465,6 +465,93 @@ export async function confirmPaymentBatch(batch: PaymentBatch, actor: Profile | 
   });
 }
 
+
+export async function updatePaymentBatchDate(params: {
+  batch: PaymentBatch;
+  nextPaymentDate: string;
+  actor: Profile | null;
+}) {
+  const { batch, nextPaymentDate, actor } = params;
+  if (actor?.role !== 'admin' && actor?.role !== 'finance') throw new Error('您沒有修改繳費日期的權限。');
+  if (batch.status === 'confirmed') throw new Error('已對帳完成的批次不可在財務對帳確認修改繳費日期。');
+  if (batch.payment_date === nextPaymentDate) return;
+  const patch = { payment_date: nextPaymentDate, updated_by: actor?.id };
+  const { error } = await supabase.from('payment_batches').update(patch).eq('id', batch.id);
+  if (error) throw error;
+  const { error: caseError } = await supabase.from('arc_cases').update({ payment_date: nextPaymentDate, updated_by: actor?.id }).eq('payment_batch_id', batch.id);
+  if (caseError) throw caseError;
+  await addAudit({
+    action_type: '財務批次繳費日期修改',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '財務對帳確認',
+    record_table: 'payment_batches',
+    record_id: batch.id,
+    old_data: { 繳費批次編號: batch.batch_no, 原繳費日期: batch.payment_date, 原始資料: batch },
+    new_data: { 繳費批次編號: batch.batch_no, 修改後繳費日期: nextPaymentDate, 更新資料: patch },
+    reason: '異動來源：財務對帳確認。修改整個繳費批次日期並同步批次內案件繳費日期。'
+  });
+}
+
+export async function adjustFinanceConfirmAccountBalance(params: {
+  batch: PaymentBatch;
+  account: BankAccount;
+  nextBalance: number;
+  reason: string;
+  actor: Profile | null;
+}) {
+  const { batch, account, nextBalance, reason, actor } = params;
+  if (actor?.role !== 'admin' && actor?.role !== 'finance') throw new Error('您沒有修改帳戶餘額的權限。');
+  if (!Number.isFinite(nextBalance)) throw new Error('修改後餘額必須為有效數字。');
+  const cleanReason = reason.trim();
+  if (!cleanReason) throw new Error('請輸入餘額調整原因。');
+  const before = Number(account.current_balance ?? 0);
+  const delta = nextBalance - before;
+  if (delta === 0) throw new Error('修改後餘額與目前餘額相同，無需調整。');
+  const { error } = await supabase.from('bank_accounts').update({ current_balance: nextBalance, updated_by: actor?.id }).eq('id', account.id);
+  if (error) throw error;
+  const { error: txnError } = await supabase.from('account_transactions').insert({
+    account_id: account.id,
+    txn_type: 'finance_confirm_balance_adjustment',
+    amount: delta,
+    balance_before: before,
+    balance_after: nextBalance,
+    ref_table: 'payment_batches',
+    ref_id: batch.id,
+    reason: cleanReason,
+    created_by: actor?.id
+  });
+  if (txnError) throw txnError;
+  await addAudit({
+    action_type: '手動修改餘額',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '財務對帳確認',
+    record_table: 'bank_accounts',
+    record_id: account.id,
+    old_data: {
+      異動類型: '手動修改餘額',
+      繳費批次編號: batch.batch_no,
+      帳戶名稱: account.account_name,
+      帳號後五碼: account.account_last5 ?? account.account_no.slice(-5),
+      修改前餘額: before
+    },
+    new_data: {
+      異動類型: '手動修改餘額',
+      繳費批次編號: batch.batch_no,
+      帳戶名稱: account.account_name,
+      帳號後五碼: account.account_last5 ?? account.account_no.slice(-5),
+      修改後餘額: nextBalance,
+      差額: delta,
+      調整原因: cleanReason,
+      修改人: actor?.display_name,
+      修改時間: new Date().toISOString(),
+      異動來源: '財務對帳確認'
+    },
+    reason: cleanReason
+  });
+}
+
 export async function correctPaymentItem(params: {
   batch: PaymentBatch;
   item: PaymentBatchItem;

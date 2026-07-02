@@ -803,3 +803,67 @@ input[type="checkbox"] {
   .finance-batch-summary { grid-template-columns: 1fr; }
   .finance-batch-summary > .danger-button { justify-self: start; }
 }
+
+/* V34/V35 財務對帳日期與帳戶餘額調整 */
+.finance-confirm-detail-card { display: grid; gap: 14px; }
+.finance-detail-head-rich {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: stretch;
+}
+.finance-detail-head-rich > div {
+  background: rgba(255,255,255,.72);
+  border: 1px solid rgba(66,116,217,.14);
+  border-radius: 12px;
+  padding: 10px;
+}
+.inline-mini-button { margin-top: 8px; align-self: flex-start; }
+.finance-balance-adjust-panel {
+  border: 1px solid #d7e5ff;
+  background: linear-gradient(135deg, #f8fbff, #ffffff);
+  border-radius: 18px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+.finance-balance-adjust-panel h3,
+.finance-transaction-panel h3 {
+  margin: 0 0 4px;
+  color: var(--blue);
+  font-size: 16px;
+}
+.finance-balance-adjust-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+.finance-balance-adjust-grid .wide-field { grid-column: span 2; }
+.finance-transaction-panel {
+  margin-top: 14px;
+  border: 1px solid #edf0e6;
+  border-radius: 16px;
+  background: #fbfcf8;
+  padding: 12px;
+}
+.transaction-list { display: grid; gap: 8px; }
+.transaction-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+  border: 1px solid #e8eddf;
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px;
+}
+.transaction-row span { display: grid; gap: 2px; }
+.transaction-row b { color: var(--blue); font-size: 12px; }
+
+@media (max-width: 980px) {
+  .finance-balance-adjust-grid { grid-template-columns: 1fr 1fr; }
+  .finance-balance-adjust-grid .wide-field { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .finance-balance-adjust-grid { grid-template-columns: 1fr; }
+  .finance-balance-adjust-grid .wide-field { grid-column: auto; }
+}

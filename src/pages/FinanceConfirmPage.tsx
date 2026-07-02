@@ -1,14 +1,20 @@
-import { useMemo, useState } from 'react';
-import { confirmPaymentBatch, correctPaymentItem, deletePaymentBatch } from '../api/repository';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  adjustFinanceConfirmAccountBalance,
+  confirmPaymentBatch,
+  correctPaymentItem,
+  deletePaymentBatch,
+  updatePaymentBatchDate
+} from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { BatchStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, PaymentBatch, PaymentBatchItem, Profile } from '../types';
-import { formatDate } from '../utils/date';
+import { formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
-import { canDeleteData } from '../utils/permissions';
+import { canAdjustFinanceConfirmBalance, canDeleteData, canModifyFinanceBatchDate } from '../utils/permissions';
 
 export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -17,19 +23,42 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const [correctedItemId, setCorrectedItemId] = useState('');
   const [correctedAmount, setCorrectedAmount] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
+  const [dateEditor, setDateEditor] = useState<{ batch: PaymentBatch; value: string } | null>(null);
+  const [nextBalance, setNextBalance] = useState('');
+  const [balanceReason, setBalanceReason] = useState('');
 
   const batches = useMemo(() => data.batches
     .filter((item) => item.deleted_at == null)
     .filter((item) => item.status === 'pending' || item.status === 'amount_error')
     .sort((a, b) => `${b.payment_date}${b.batch_no}`.localeCompare(`${a.payment_date}${a.batch_no}`)), [data.batches]);
   const selectedBatch = batches.find((item) => item.id === selectedBatchId) ?? batches[0];
+  const selectedBroker = selectedBatch ? data.brokers.find((item) => item.id === selectedBatch.broker_id) : undefined;
+  const selectedAccount = selectedBatch ? data.accounts.find((item) => item.id === selectedBatch.account_id) : undefined;
   const batchItems = selectedBatch ? data.batchItems.filter((item) => item.batch_id === selectedBatch.id) : [];
-  const details = batchItems.map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) })).filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
+  const details = batchItems
+    .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) }))
+    .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
+
+  useEffect(() => {
+    if (!selectedAccount) {
+      setNextBalance('');
+      setBalanceReason('');
+      return;
+    }
+    setNextBalance(String(selectedAccount.current_balance ?? 0));
+    setBalanceReason('');
+  }, [selectedBatch?.id, selectedAccount?.id, selectedAccount?.current_balance]);
+
+  const parsedNextBalance = parseMoney(nextBalance);
+  const balanceDelta = selectedAccount && parsedNextBalance !== null ? parsedNextBalance - Number(selectedAccount.current_balance ?? 0) : null;
+  const mayChangeDate = selectedBatch ? canModifyFinanceBatchDate(profile?.role) && selectedBatch.status !== 'confirmed' : false;
+  const mayAdjustBalance = selectedBatch ? canAdjustFinanceConfirmBalance(profile?.role) : false;
 
   async function completeBatch(batch: PaymentBatch) {
     try {
       await confirmPaymentBatch(batch, profile);
-      pushToast({ type: 'success', title: '對帳完成' });
+      pushToast({ type: 'success', title: '對帳完成', message: '此批次已轉入財務查詢。' });
+      setSelectedBatchId('');
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '對帳失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -42,7 +71,6 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     setCorrectedAmount(String(entry.item.corrected_amount ?? entry.caseRow.amount ?? entry.item.original_amount));
     setCorrectionReason(entry.item.correction_reason ?? '');
   }
-
 
   async function removeBatch(batch: PaymentBatch) {
     if (!canDeleteData(profile?.role)) {
@@ -57,6 +85,51 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
+  async function submitBatchDate() {
+    if (!dateEditor) return;
+    if (!canModifyFinanceBatchDate(profile?.role)) {
+      pushToast({ type: 'warning', title: '您沒有修改繳費日期的權限。' });
+      return;
+    }
+    const normalized = parseDateLoose(dateEditor.value);
+    if (!normalized) {
+      pushToast({ type: 'warning', title: '繳費日期格式不正確，請重新輸入。' });
+      return;
+    }
+    try {
+      await updatePaymentBatchDate({ batch: dateEditor.batch, nextPaymentDate: normalized, actor: profile });
+      pushToast({ type: 'success', title: '繳費日期已更新。' });
+      setDateEditor(null);
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '修改日期失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
+  async function submitBalanceAdjustment() {
+    if (!selectedBatch || !selectedAccount) return;
+    if (!canAdjustFinanceConfirmBalance(profile?.role)) {
+      pushToast({ type: 'warning', title: '您沒有修改帳戶餘額的權限。' });
+      return;
+    }
+    const money = parseMoney(nextBalance);
+    if (money === null) return pushToast({ type: 'warning', title: '修改後餘額必須為有效數字。' });
+    if (!balanceReason.trim()) return pushToast({ type: 'warning', title: '請輸入餘額調整原因。' });
+    try {
+      await adjustFinanceConfirmAccountBalance({
+        batch: selectedBatch,
+        account: selectedAccount,
+        nextBalance: money,
+        reason: balanceReason.trim(),
+        actor: profile
+      });
+      pushToast({ type: 'success', title: '帳戶餘額已更新。' });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '餘額修改失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     }
   }
 
@@ -98,33 +171,68 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     { key: 'case_no', title: '案件編號', render: (row: { caseRow: ArcCase }) => row.caseRow.case_no },
     { key: 'employer', title: '雇主', render: (row: { caseRow: ArcCase }) => row.caseRow.employer_name },
     { key: 'worker', title: '工人', render: (row: { caseRow: ArcCase }) => row.caseRow.worker_name },
+    { key: 'group', title: '團號', render: (row: { caseRow: ArcCase }) => row.caseRow.group_no ?? '' },
     { key: 'item', title: '申請項目', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => data.applicationItems.find((item) => item.id === (row.item.corrected_application_item_id ?? row.caseRow.application_item_id))?.name ?? '' },
     { key: 'amount', title: '項目金額', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatMoney(row.item.corrected_amount ?? row.caseRow.amount) },
+    { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
+    { key: 'payment_date', title: '收費日期', render: () => formatDate(selectedBatch?.payment_date) },
     { key: 'correction', title: '修正紀錄', render: (row: { item: PaymentBatchItem }) => row.item.correction_reason ?? '' },
     { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => <button className="danger-button mini" onClick={() => openCorrection(row)}>項目金額錯誤</button> }
   ];
 
   return (
     <div className="page-content finance-page">
-      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可使用。" />
+      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可使用。對帳完成前可修正批次繳費日期與本批次扣款帳戶餘額。" />
       <section className="card full-width-card">
         <h2>待對帳繳費批次</h2>
         <DataTable columns={batchColumns} rows={batches} rowKey={(row) => row.id} emptyText="目前沒有待對帳繳費批次" />
       </section>
       {selectedBatch ? (
-        <section className="card full-width-card">
-          <div className="finance-detail-head">
-            <div><span>繳費日期</span><strong>{formatDate(selectedBatch.payment_date)}</strong></div>
+        <section className="card full-width-card finance-confirm-detail-card">
+          <div className="finance-detail-head finance-detail-head-rich">
+            <div>
+              <span>繳費日期</span>
+              <strong>{formatDate(selectedBatch.payment_date)}</strong>
+              {mayChangeDate ? <button type="button" className="secondary-button mini inline-mini-button" onClick={() => setDateEditor({ batch: selectedBatch, value: formatDate(selectedBatch.payment_date) })}>修改日期</button> : null}
+            </div>
             <div><span>繳款人</span><strong>{selectedBatch.payer_name}</strong></div>
-            <div><span>仲介</span><strong>{data.brokers.find((item) => item.id === selectedBatch.broker_id)?.name}</strong></div>
-            <div><span>帳戶名稱</span><strong>{data.accounts.find((item) => item.id === selectedBatch.account_id)?.account_name}</strong></div>
+            <div><span>仲介</span><strong>{selectedBroker?.name ?? ''}</strong></div>
+            <div><span>扣款帳戶</span><strong>{selectedAccount ? `${selectedAccount.bank_name}｜${selectedAccount.account_name}` : '未設定'}</strong></div>
+            <div><span>帳戶名稱</span><strong>{selectedAccount?.account_name ?? ''}</strong></div>
+            <div><span>帳號後五碼</span><strong>{selectedAccount?.account_last5 ?? selectedAccount?.account_no?.slice(-5) ?? ''}</strong></div>
+            <div><span>目前帳戶餘額</span><strong>{selectedAccount ? formatMoney(selectedAccount.current_balance) : ''}</strong></div>
           </div>
+
+          <div className="finance-balance-adjust-panel">
+            <div>
+              <h3>帳戶餘額修改</h3>
+              <p className="subtle-text">只調整本批次所選扣款帳戶，不影響案件金額、不新增批次、不重複扣款。</p>
+            </div>
+            <div className="finance-balance-adjust-grid">
+              <label><span>目前餘額</span><input value={selectedAccount ? formatMoney(selectedAccount.current_balance) : ''} disabled /></label>
+              <label><span>修改後餘額</span><input value={nextBalance} onChange={(e) => setNextBalance(e.target.value)} disabled={!mayAdjustBalance || !selectedAccount} /></label>
+              <label><span>差額</span><input value={balanceDelta === null ? '' : `${balanceDelta >= 0 ? '增加 ' : '減少 '}${formatMoney(Math.abs(balanceDelta))}`} disabled /></label>
+              <label className="wide-field"><span>餘額調整原因</span><input value={balanceReason} onChange={(e) => setBalanceReason(e.target.value)} disabled={!mayAdjustBalance || !selectedAccount} placeholder="必填，例如銀行餘額校正 / 入帳差異調整" /></label>
+              {mayAdjustBalance ? <button type="button" className="primary-button" onClick={submitBalanceAdjustment} disabled={!selectedAccount}>儲存餘額修改</button> : <span className="subtle-text">您沒有修改帳戶餘額的權限。</span>}
+            </div>
+          </div>
+
           <div className="toolbar-row">
             <button className="primary-button" onClick={() => completeBatch(selectedBatch)}>對帳完成並轉入財務查詢</button>
             <span className="subtle-text">項目金額錯誤請在單筆明細右側修正。</span>
           </div>
           <DataTable columns={detailColumns} rows={details} rowKey={(row) => row.item.id} emptyText="此批次沒有明細" />
         </section>
+      ) : null}
+      {dateEditor ? (
+        <Modal title="修改批次繳費日期" onClose={() => setDateEditor(null)}>
+          <div className="form-grid one-col">
+            <p className="subtle-text">修改的是整個繳費批次日期，會同步更新此批次內案件的繳費日期。</p>
+            <label><span>繳費批次編號</span><input value={dateEditor.batch.batch_no} disabled /></label>
+            <label><span>繳費日期</span><input value={dateEditor.value} onChange={(e) => setDateEditor({ ...dateEditor, value: e.target.value })} placeholder="例如 20260701、115/07/01、民國115年7月1日" /></label>
+          </div>
+          <div className="form-actions"><button className="primary-button" onClick={submitBatchDate}>儲存日期</button></div>
+        </Modal>
       ) : null}
       {correction ? (
         <Modal title="項目金額錯誤" onClose={() => setCorrection(null)}>

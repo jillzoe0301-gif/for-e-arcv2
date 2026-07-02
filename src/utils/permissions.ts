@@ -10,7 +10,7 @@ const pageRoles: Record<PageKey, Role[]> = {
   caseSearch: ['admin', 'staff'],
   stats: ['admin', 'staff'],
   export: ['admin', 'staff', 'finance'],
-  brokersAccounts: ['admin', 'finance'],
+  brokersAccounts: ['admin'],
   serviceStations: ['admin', 'staff'],
   taskForces: ['admin', 'staff'],
   auditLogs: ['admin'],
@@ -25,6 +25,14 @@ export function canAccessPage(role: Role | undefined, page: PageKey): boolean {
 
 export function canAdjustBalance(role: Role | undefined): boolean {
   return role === 'admin';
+}
+
+export function canModifyFinanceBatchDate(role: Role | undefined): boolean {
+  return role === 'admin' || role === 'finance';
+}
+
+export function canAdjustFinanceConfirmBalance(role: Role | undefined): boolean {
+  return role === 'admin' || role === 'finance';
 }
 
 export function canDeleteData(role: Role | undefined): boolean {
