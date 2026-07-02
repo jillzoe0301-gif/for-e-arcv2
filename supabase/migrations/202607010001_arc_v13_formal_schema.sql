@@ -17,7 +17,8 @@ do $$ begin
     'archive_paid',
     'cancelled',
     'not_received',
-    'completed'
+    'completed',
+    'removed_from_payment'
   );
 exception when duplicate_object then null; end $$;
 
@@ -150,6 +151,7 @@ create table if not exists public.bank_accounts (
   initial_balance numeric(14,2) not null default 0,
   current_balance numeric(14,2) not null default 0,
   is_enabled boolean not null default true,
+  is_default boolean not null default false,
   created_by uuid references auth.users(id),
   updated_by uuid references auth.users(id),
   created_at timestamptz not null default now(),

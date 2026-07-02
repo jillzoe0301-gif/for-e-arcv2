@@ -25,7 +25,8 @@ export type CaseStatus =
   | 'archive_paid'
   | 'cancelled'
   | 'not_received'
-  | 'completed';
+  | 'completed'
+  | 'removed_from_payment';
 
 export type BatchStatus = 'pending' | 'confirmed' | 'amount_error' | 'cancelled';
 export type PickupItemStatus = 'pending' | 'picked_up' | 'not_received' | 'cancelled';
@@ -80,6 +81,7 @@ export interface BankAccount {
   initial_balance: number;
   current_balance: number;
   is_enabled: boolean;
+  is_default?: boolean;
 }
 
 export interface ApplicationItem {

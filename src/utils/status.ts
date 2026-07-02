@@ -14,7 +14,8 @@ export const caseStatusLabels: Record<CaseStatus, string> = {
   archive_paid: '已繳費 / 查詢留存',
   cancelled: '取消案件',
   not_received: '本次未領到',
-  completed: '已完成領件'
+  completed: '已完成領件',
+  removed_from_payment: '已從繳費頁移除'
 };
 
 export const batchStatusLabels: Record<BatchStatus, string> = {

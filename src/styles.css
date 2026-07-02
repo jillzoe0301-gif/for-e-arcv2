@@ -288,6 +288,7 @@ input:focus, select:focus, textarea:focus { border-color:var(--blue); box-shadow
 .status-completed, .batch-confirmed { background:#e9f8ec; color:#25824a; }
 .status-not_received { background:#fff8db; color:#876106; }
 .status-pending_payment, .batch-pending { background:#fff3e0; color:#a06500; }
+.status-removed_from_payment { background:#eef2f7; color:#516070; }
 .status-pending_pickup { background:#eef5ff; color:#4274D9; }
 
 .modal-backdrop { position:fixed; inset:0; background:rgba(20,31,45,.48); z-index:100; display:grid; place-items:center; padding:20px; }
@@ -596,3 +597,9 @@ input[type="checkbox"] {
   .dashboard-announcement-card { padding:12px; }
   .dashboard-announcement-head { align-items:flex-start; }
 }
+
+.payment-amount-field { width: 92px; min-width: 92px; text-align: right; }
+.payment-amount-field.error { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(218,72,72,.12); }
+.inline-error { display:block; margin-top:4px; color:var(--danger); font-size:12px; font-weight:700; }
+.account-warning { margin-top:8px; color:var(--danger); font-weight:800; }
+.payment-account-option-text { font-size:12px; color:var(--muted); margin-top:6px; }

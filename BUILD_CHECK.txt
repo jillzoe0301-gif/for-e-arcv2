@@ -1,5 +1,1 @@
-ARC V13 V29
-- Reminder cards: icons removed from dashboard reminder items and payment reminder text.
-- Dashboard announcement: editable directly on dashboard by admin/staff.
-- ARC logo: refined CSS with heavier text, subtle gradient and shadow.
-- No new Supabase SQL required after V28 migration.
+V30 build checked: 2026-07-02T05:40:23Z

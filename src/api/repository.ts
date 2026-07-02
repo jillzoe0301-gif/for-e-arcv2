@@ -250,6 +250,67 @@ export async function restoreCaseToPayment(caseRow: ArcCase, reason: string, act
   });
 }
 
+function assertCanChangePendingPayment(caseRow: ArcCase, actor: Profile | null, actionName: string) {
+  if (!actor) throw new Error('請先登入。');
+  if (caseRow.status !== 'pending_payment' || caseRow.payment_batch_id || caseRow.payment_account_id) {
+    if (actor.role === 'staff') {
+      throw new Error(`行政不可直接${actionName}已完成扣款的金額或資料。`);
+    }
+    throw new Error(`已完成扣款的案件不可直接${actionName}，請改用財務沖正或補差額流程。`);
+  }
+}
+
+export async function updatePendingPaymentAmount(caseRow: ArcCase, nextAmount: number, actor: Profile | null) {
+  assertCanChangePendingPayment(caseRow, actor, '修改');
+  if (!Number.isFinite(nextAmount) || nextAmount < 0) throw new Error('金額格式不正確，請重新輸入。');
+  const beforeAmount = Number(caseRow.amount ?? 0);
+  if (beforeAmount === nextAmount) return;
+  const patch = { amount: nextAmount, updated_by: actor?.id };
+  const { error } = await supabase.from('arc_cases').update(patch).eq('id', caseRow.id);
+  if (error) throw error;
+  await addAudit({
+    action_type: '待繳金額修改',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '居留證繳費',
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: { 案件編號: caseRow.case_no, 原金額: beforeAmount, 案件: caseRow },
+    new_data: { 案件編號: caseRow.case_no, 修改後金額: nextAmount },
+    reason: '居留證繳費頁修改待繳金額'
+  });
+}
+
+export async function removeCaseFromPayment(caseRow: ArcCase, actor: Profile | null) {
+  assertAdmin(actor);
+  assertCanChangePendingPayment(caseRow, actor, '刪除');
+  const patch = {
+    status: 'removed_from_payment' as ArcCase['status'],
+    note: [caseRow.note, '已從繳費頁移除'].filter(Boolean).join('｜'),
+    updated_by: actor?.id
+  };
+  const { error } = await supabase.from('arc_cases').update(patch).eq('id', caseRow.id);
+  if (error) throw error;
+  await addAudit({
+    action_type: '刪除待繳案件',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '居留證繳費',
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: {
+      案件編號: caseRow.case_no,
+      雇主: caseRow.employer_name,
+      工人: caseRow.worker_name,
+      申請項目: caseRow.application_item_id,
+      原金額: caseRow.amount,
+      原始資料: caseRow
+    },
+    new_data: patch,
+    reason: '管理員從居留證繳費頁移除待繳案件，案件主資料保留於案件查詢。'
+  });
+}
+
 export async function createPaymentBatch(params: {
   caseIds: string[];
   brokerId: string;
@@ -258,15 +319,27 @@ export async function createPaymentBatch(params: {
   payerName: string;
   data: ArcData;
   actor: Profile | null;
+  amountOverrides?: Record<string, number>;
 }) {
-  const { caseIds, brokerId, accountId, paymentDate, payerName, data, actor } = params;
+  const { caseIds, brokerId, accountId, paymentDate, payerName, data, actor, amountOverrides = {} } = params;
   const selectedCases = data.cases.filter((item) => caseIds.includes(item.id));
   if (!selectedCases.length) throw new Error('請先選擇待繳案件。');
+  if (selectedCases.some((item) => item.status !== 'pending_payment' || item.payment_batch_id || item.payment_account_id)) {
+    throw new Error('已扣款或非待繳案件不可直接建立扣款，請重新整理後再試。');
+  }
   if (selectedCases.some((item) => item.broker_id !== brokerId)) throw new Error('同一批繳費只能選同一仲介。');
   const broker = data.brokers.find((item) => item.id === brokerId);
-  const account = data.accounts.find((item) => item.id === accountId);
-  if (!broker || !account) throw new Error('請確認仲介與扣款帳號。');
-  const total = selectedCases.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+  const account = data.accounts.find((item) => item.id === accountId && item.is_enabled && item.broker_id === brokerId);
+  if (!broker) throw new Error('請確認仲介設定。');
+  if (!account) throw new Error('請選擇該仲介的啟用扣款帳號。');
+
+  const selectedPaymentRows = selectedCases.map((caseRow) => {
+    const amount = Number(amountOverrides[caseRow.id] ?? caseRow.amount ?? 0);
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('金額格式不正確，請重新輸入。');
+    return { caseRow, amount };
+  });
+  const total = selectedPaymentRows.reduce((sum, item) => sum + item.amount, 0);
+
   const { data: batchNo, error: rpcError } = await supabase.rpc('next_payment_batch_no', {
     p_broker_code: broker.code,
     p_payment_date: paymentDate
@@ -286,18 +359,32 @@ export async function createPaymentBatch(params: {
   }).select('*').single();
   if (batchError) throw batchError;
 
-  const itemRows = selectedCases.map((caseRow) => ({
+  const itemRows = selectedPaymentRows.map(({ caseRow, amount }) => ({
     batch_id: batch.id,
     case_id: caseRow.id,
     original_application_item_id: caseRow.application_item_id,
-    original_amount: caseRow.amount
+    original_amount: amount
   }));
   const { error: itemsError } = await supabase.from('payment_batch_items').insert(itemRows);
   if (itemsError) throw itemsError;
 
-  for (const caseRow of selectedCases) {
+  for (const { caseRow, amount } of selectedPaymentRows) {
     const appItem = data.applicationItems.find((item) => item.id === caseRow.application_item_id);
+    if (Number(caseRow.amount ?? 0) !== amount) {
+      await addAudit({
+        action_type: '待繳金額修改',
+        actor_id: actor?.id,
+        actor_name: actor?.display_name,
+        page_name: '居留證繳費',
+        record_table: 'arc_cases',
+        record_id: caseRow.id,
+        old_data: { 案件編號: caseRow.case_no, 原金額: caseRow.amount },
+        new_data: { 案件編號: caseRow.case_no, 修改後金額: amount },
+        reason: `建立繳費批次 ${batch.batch_no} 前同步本次扣款金額`
+      });
+    }
     await supabase.from('arc_cases').update({
+      amount,
       status: statusAfterPayment(appItem),
       payment_batch_id: batch.id,
       payment_date: paymentDate,
@@ -330,7 +417,19 @@ export async function createPaymentBatch(params: {
     page_name: '居留證繳費',
     record_table: 'payment_batches',
     record_id: batch.id,
-    new_data: { batch, items: selectedCases }
+    new_data: {
+      batch,
+      items: selectedPaymentRows.map(({ caseRow, amount }) => ({
+        案件編號: caseRow.case_no,
+        仲介: broker.name,
+        扣款帳戶: account.account_name,
+        帳號後五碼: account.account_last5 ?? account.account_no.slice(-5),
+        扣款前餘額: before,
+        扣款金額: amount,
+        批次扣款後餘額: after,
+        caseRow
+      }))
+    }
   });
   return batch as PaymentBatch;
 }

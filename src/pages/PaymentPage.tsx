@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { cancelCasePayment, createPaymentBatch, deleteArcCase, restoreCaseToPayment } from '../api/repository';
+import { useEffect, useMemo, useState } from 'react';
+import { cancelCasePayment, createPaymentBatch, removeCaseFromPayment, restoreCaseToPayment, updatePendingPaymentAmount } from '../api/repository';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
@@ -9,9 +9,29 @@ import { CaseStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, BankAccount, Profile } from '../types';
 import { todayTaipei } from '../utils/date';
-import { formatMoney } from '../utils/number';
+import { formatMoney, parseMoney } from '../utils/number';
 import { canDeleteData } from '../utils/permissions';
 import { rowMatchesKeyword } from '../utils/search';
+
+function strictPaymentAmount(value: unknown): number | null {
+  const raw = String(value ?? '').normalize('NFKC').trim();
+  if (!raw) return null;
+  const parsed = parseMoney(raw);
+  if (parsed === null || !Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+function accountLabel(account: BankAccount, data: ArcData) {
+  const broker = data.brokers.find((item) => item.id === account.broker_id);
+  const last5 = account.account_last5 ?? account.account_no.slice(-5);
+  return `${broker?.name ?? ''}｜${account.account_name}｜後五碼 ${last5}｜餘額 ${formatMoney(account.current_balance)}`;
+}
+
+function getAutoAccountId(accounts: BankAccount[]) {
+  if (accounts.length === 1) return accounts[0].id;
+  const defaultAccount = accounts.find((account) => account.is_default);
+  return defaultAccount?.id ?? '';
+}
 
 export function PaymentPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -23,6 +43,8 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   const [paymentDate, setPaymentDate] = useState(todayTaipei());
   const [cancelTarget, setCancelTarget] = useState<ArcCase | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
+  const [amountErrors, setAmountErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const pendingCases = useMemo(() => data.cases.filter((caseRow) =>
@@ -36,10 +58,34 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   const selectedCases = pendingCases.filter((item) => selectedIds.includes(item.id));
   const selectedBrokerIds = Array.from(new Set(selectedCases.map((item) => item.broker_id)));
   const filteredAccounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === brokerId);
-  const total = selectedCases.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
   const selectedAccount = data.accounts.find((item) => item.id === accountId);
 
+  function amountForCase(row: ArcCase) {
+    return strictPaymentAmount(amountDrafts[row.id] ?? String(row.amount ?? 0)) ?? 0;
+  }
+
+  const total = selectedCases.reduce((sum, item) => sum + amountForCase(item), 0);
+  const accountWarning = brokerId && filteredAccounts.length === 0
+    ? '此仲介尚未設定扣款帳號，請先至系統設定新增帳戶。'
+    : '';
+  const multiAccountNotice = brokerId && filteredAccounts.length > 1 && !filteredAccounts.some((account) => account.is_default)
+    ? '此仲介有多個啟用帳戶，請選擇本次扣款帳號。'
+    : '';
+
+  useEffect(() => {
+    if (!brokerId) {
+      setAccountId('');
+      return;
+    }
+    const accounts = data.accounts.filter((account) => account.is_enabled && account.broker_id === brokerId);
+    setAccountId((current) => {
+      if (current && accounts.some((account) => account.id === current)) return current;
+      return getAutoAccountId(accounts);
+    });
+  }, [brokerId, data.accounts]);
+
   async function copyAccount(account: BankAccount) {
+    if (brokerId && account.broker_id === brokerId) setAccountId(account.id);
     try {
       await navigator.clipboard.writeText(account.account_no);
       pushToast({ type: 'success', title: '已複製銀行帳號', message: account.account_no });
@@ -57,16 +103,13 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
       return;
     }
     setSelectedIds(nextSelected);
-    const nextBrokerId = nextBrokerIds[0] ?? '';
-    setBrokerId(nextBrokerId);
-    setAccountId((current) => data.accounts.some((account) => account.id === current && account.broker_id === nextBrokerId) ? current : '');
+    setBrokerId(nextBrokerIds[0] ?? '');
   }
 
   function selectBrokerCases(targetBrokerId: string) {
     const ids = pendingCases.filter((item) => item.broker_id === targetBrokerId).map((item) => item.id);
     setSelectedIds(ids);
     setBrokerId(targetBrokerId);
-    setAccountId('');
   }
 
   function clearSelected() {
@@ -75,15 +118,62 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     setAccountId('');
   }
 
+  function changeAmount(row: ArcCase, value: string) {
+    setAmountDrafts((current) => ({ ...current, [row.id]: value }));
+    setAmountErrors((current) => {
+      const next = { ...current };
+      delete next[row.id];
+      return next;
+    });
+  }
+
+  async function saveAmount(row: ArcCase) {
+    const raw = amountDrafts[row.id] ?? String(row.amount ?? 0);
+    const nextAmount = strictPaymentAmount(raw);
+    if (nextAmount === null) {
+      setAmountErrors((current) => ({ ...current, [row.id]: '金額格式不正確，請重新輸入。' }));
+      pushToast({ type: 'warning', title: '金額格式不正確，請重新輸入。' });
+      return;
+    }
+    setAmountErrors((current) => {
+      const next = { ...current };
+      delete next[row.id];
+      return next;
+    });
+    if (Number(row.amount ?? 0) === nextAmount) return;
+    try {
+      await updatePendingPaymentAmount(row, nextAmount, profile);
+      pushToast({ type: 'success', title: '待繳金額已更新', message: `${row.case_no}：${formatMoney(nextAmount)} 元` });
+      setAmountDrafts((current) => {
+        const next = { ...current };
+        delete next[row.id];
+        return next;
+      });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '金額修改失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
   async function submitBatch() {
     if (!selectedIds.length) return pushToast({ type: 'warning', title: '請先勾選待繳案件' });
     if (selectedBrokerIds.length !== 1) return pushToast({ type: 'warning', title: '同一批繳費只能選同一仲介' });
+    if (accountWarning) return pushToast({ type: 'warning', title: accountWarning });
     if (!accountId) return pushToast({ type: 'warning', title: '請選擇扣款帳號' });
+    if (!selectedAccount || selectedAccount.broker_id !== brokerId) return pushToast({ type: 'warning', title: '請選擇該仲介的扣款帳號' });
+    const invalidCase = selectedCases.find((caseRow) => strictPaymentAmount(amountDrafts[caseRow.id] ?? String(caseRow.amount ?? 0)) === null);
+    if (invalidCase) {
+      setAmountErrors((current) => ({ ...current, [invalidCase.id]: '金額格式不正確，請重新輸入。' }));
+      return pushToast({ type: 'warning', title: '金額格式不正確，請重新輸入。', message: invalidCase.case_no });
+    }
+    const amountOverrides = Object.fromEntries(selectedCases.map((caseRow) => [caseRow.id, amountForCase(caseRow)]));
     setSubmitting(true);
     try {
-      await createPaymentBatch({ caseIds: selectedIds, brokerId, accountId, paymentDate, payerName, data, actor: profile });
+      await createPaymentBatch({ caseIds: selectedIds, brokerId, accountId, paymentDate, payerName, data, actor: profile, amountOverrides });
       pushToast({ type: 'success', title: '繳費批次已建立', message: `共 ${selectedIds.length} 筆，金額 ${formatMoney(total)} 元。` });
       clearSelected();
+      setAmountDrafts({});
+      setAmountErrors({});
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '建立批次失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -125,8 +215,24 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     }
     if (!window.confirm('確定要刪除此筆資料嗎？刪除後不可復原。')) return;
     try {
-      await deleteArcCase(row, data, profile, '居留證繳費｜取消案件');
-      pushToast({ type: 'success', title: '取消案件已刪除' });
+      await removeCaseFromPayment(row, profile);
+      pushToast({ type: 'success', title: '取消案件已從繳費頁移除' });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
+  async function removePending(row: ArcCase) {
+    if (!canDeleteData(profile?.role)) {
+      pushToast({ type: 'warning', title: '您沒有刪除權限。' });
+      return;
+    }
+    if (!window.confirm('確定要刪除此筆待繳案件嗎？刪除後不可復原。')) return;
+    try {
+      await removeCaseFromPayment(row, profile);
+      pushToast({ type: 'success', title: '已從居留證繳費頁移除', message: '案件主資料仍保留於案件查詢。' });
+      setSelectedIds((ids) => ids.filter((id) => id !== row.id));
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -142,8 +248,8 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     { key: 'worker', title: '工人', render: (row: ArcCase) => row.worker_name },
     { key: 'group', title: '團號', render: (row: ArcCase) => row.group_no ?? '' },
     { key: 'item', title: '申請項目', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '' },
-    { key: 'amount', title: '金額', render: (row: ArcCase) => formatMoney(row.amount) },
-    { key: 'action', title: '操作', render: (row: ArcCase) => <button className="danger-link" type="button" onClick={() => setCancelTarget(row)}>取消繳費</button> }
+    { key: 'amount', title: '金額', render: (row: ArcCase) => <div className="amount-edit-wrap"><input className={`mini-input payment-amount-field ${amountErrors[row.id] ? 'error' : ''}`} inputMode="decimal" value={amountDrafts[row.id] ?? String(row.amount ?? 0)} onChange={(event) => changeAmount(row, event.target.value)} onBlur={() => saveAmount(row)} disabled={!profile} />{amountErrors[row.id] ? <span className="inline-error">{amountErrors[row.id]}</span> : null}</div> },
+    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal"><button className="danger-link" type="button" onClick={() => setCancelTarget(row)}>取消繳費</button>{canDeleteData(profile?.role) ? <button className="danger-link" type="button" onClick={() => removePending(row)}>刪除</button> : null}</div> }
   ];
 
   const cancelledColumns = [
@@ -173,24 +279,22 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
         <div className="account-balance-strip">
           <h3>仲介銀行帳戶餘額</h3>
           <div className="account-balance-grid compact">
-            {data.accounts.filter((account) => !brokerId || account.broker_id === brokerId).map((account) => {
-              const broker = data.brokers.find((item) => item.id === account.broker_id);
-              return (
-                <button type="button" className={`balance-card copy-card ${account.id === accountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號">
-                  <span>{broker?.name}｜{account.account_name}</span>
-                  <strong>{formatMoney(account.current_balance)}</strong>
-                  <small>後五碼：{account.account_last5 ?? account.account_no.slice(-5)}｜點擊複製帳號</small>
-                </button>
-              );
-            })}
+            {data.accounts.filter((account) => !brokerId || account.broker_id === brokerId).map((account) => (
+              <button type="button" className={`balance-card copy-card ${account.id === accountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號；若已選仲介也會選定此扣款帳號">
+                <span>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</span>
+                <strong>{formatMoney(account.current_balance)}</strong>
+                <small>點擊複製帳號{brokerId && account.broker_id === brokerId ? ' / 選定扣款帳號' : ''}</small>
+              </button>
+            ))}
           </div>
           {selectedAccount ? <p className="selected-balance-text">目前選擇帳戶餘額：{formatMoney(selectedAccount.current_balance)} 元</p> : null}
+          {accountWarning ? <p className="account-warning">{accountWarning}</p> : null}
         </div>
         <div className="payment-panel">
           <label><span>繳費日期</span><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} /></label>
           <label><span>繳款人</span><input value={payerName} onChange={(e) => setPayerName(e.target.value)} /></label>
-          <label><span>仲介</span><select value={brokerId} onChange={(e) => { setBrokerId(e.target.value); setSelectedIds([]); setAccountId(''); }}><option value="">請由勾選案件帶入</option>{data.brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.name}</option>)}</select></label>
-          <label><span>扣款帳號</span><select value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">請選擇</option>{filteredAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}｜餘額 {formatMoney(account.current_balance)}</option>)}</select></label>
+          <label><span>仲介</span><select value={brokerId} onChange={(e) => { setBrokerId(e.target.value); setSelectedIds([]); }}><option value="">請由勾選案件帶入</option>{data.brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.name}</option>)}</select></label>
+          <label><span>扣款帳號</span><select value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">請選擇</option>{filteredAccounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</option>)}</select>{multiAccountNotice ? <small className="payment-account-option-text">{multiAccountNotice}</small> : null}</label>
           <div className="payment-summary"><span>已選 {selectedIds.length} 件</span><strong>{formatMoney(total)} 元</strong></div>
           <button className="primary-button" onClick={submitBatch} disabled={submitting}>建立繳費批次</button>
         </div>
