@@ -222,17 +222,7 @@ export async function cancelCasePayment(caseRow: ArcCase, reason: string, actor:
     record_table: 'arc_cases',
     record_id: caseRow.id,
     old_data: caseRow,
-    new_data: {
-      批次編號: batch.batch_no,
-      案件編號: caseRow.case_no,
-      修正後申請項目: correctedApplicationItemId,
-      修正後金額: correctedAmount,
-      修正原因: reason,
-      修正人: actor?.display_name,
-      修正時間: patch.corrected_at,
-      批次總金額: recalculatedTotal,
-      ...patch
-    },
+    new_data: patch,
     reason
   });
 }
@@ -255,17 +245,7 @@ export async function restoreCaseToPayment(caseRow: ArcCase, reason: string, act
     record_table: 'arc_cases',
     record_id: caseRow.id,
     old_data: caseRow,
-    new_data: {
-      批次編號: batch.batch_no,
-      案件編號: caseRow.case_no,
-      修正後申請項目: correctedApplicationItemId,
-      修正後金額: correctedAmount,
-      修正原因: reason,
-      修正人: actor?.display_name,
-      修正時間: patch.corrected_at,
-      批次總金額: recalculatedTotal,
-      ...patch
-    },
+    new_data: patch,
     reason
   });
 }
@@ -326,17 +306,7 @@ export async function removeCaseFromPayment(caseRow: ArcCase, actor: Profile | n
       原金額: caseRow.amount,
       原始資料: caseRow
     },
-    new_data: {
-      批次編號: batch.batch_no,
-      案件編號: caseRow.case_no,
-      修正後申請項目: correctedApplicationItemId,
-      修正後金額: correctedAmount,
-      修正原因: reason,
-      修正人: actor?.display_name,
-      修正時間: patch.corrected_at,
-      批次總金額: recalculatedTotal,
-      ...patch
-    },
+    new_data: patch,
     reason: '管理員從居留證繳費頁移除待繳案件，案件主資料保留於案件查詢。'
   });
 }
@@ -638,17 +608,7 @@ export async function correctPaymentItem(params: {
       case_application_item_id: caseRow.application_item_id,
       case_amount: caseRow.amount
     },
-    new_data: {
-      批次編號: batch.batch_no,
-      案件編號: caseRow.case_no,
-      修正後申請項目: correctedApplicationItemId,
-      修正後金額: correctedAmount,
-      修正原因: reason,
-      修正人: actor?.display_name,
-      修正時間: patch.corrected_at,
-      批次總金額: recalculatedTotal,
-      ...patch
-    },
+    new_data: patch,
     reason
   });
 }
@@ -969,17 +929,7 @@ export async function softDelete(table: string, row: { id: string; [key: string]
     record_table: table,
     record_id: row.id,
     old_data: row,
-    new_data: {
-      批次編號: batch.batch_no,
-      案件編號: caseRow.case_no,
-      修正後申請項目: correctedApplicationItemId,
-      修正後金額: correctedAmount,
-      修正原因: reason,
-      修正人: actor?.display_name,
-      修正時間: patch.corrected_at,
-      批次總金額: recalculatedTotal,
-      ...patch
-    },
+    new_data: patch,
     reason
   });
 }
