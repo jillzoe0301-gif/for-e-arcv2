@@ -9,6 +9,7 @@ import { parseMoney } from '../utils/number';
 
 const DATE_ERROR = '申請日期格式不正確，請重新輸入。';
 const ENTRY_DATE_ERROR = '入境日格式不正確，請重新輸入。';
+const GROUP_NO_REQUIRED = '請輸入團號，團號為必填欄位。';
 
 const emptyRow: BatchCaseRow = {
   handler_name: '',
@@ -207,7 +208,12 @@ export function CaseRegistrationPage({
         errors[index].error = ENTRY_DATE_ERROR;
         return;
       }
-      const requiredMissing = !row.handler_name || !row.broker_id || !row.employer_name || !row.worker_name || !row.application_item_id;
+      const groupNo = String(row.group_no ?? '').trim();
+      if (!groupNo) {
+        errors[index].error = inputRows.length > 1 ? `第 ${index + 1} 列尚未輸入團號，請補齊後再送出。` : GROUP_NO_REQUIRED;
+        return;
+      }
+      const requiredMissing = !String(row.handler_name ?? '').trim() || !String(row.broker_id ?? '').trim() || !String(row.employer_name ?? '').trim() || !String(row.worker_name ?? '').trim() || !String(row.application_item_id ?? '').trim();
       if (requiredMissing) {
         errors[index].error = '必填欄位未完整';
         return;
@@ -231,7 +237,7 @@ export function CaseRegistrationPage({
         worker_name: row.worker_name.trim(),
         entry_date: entryDate,
         application_date: applicationDate,
-        group_no: row.group_no.trim() || null,
+        group_no: groupNo,
         application_item_id: row.application_item_id,
         amount: money
       });
@@ -291,6 +297,11 @@ export function CaseRegistrationPage({
   async function submitBatch() {
     const { valid, errors } = validateRows(rows);
     setRows(errors);
+    const firstError = errors.find((row) => row.error)?.error;
+    if (firstError) {
+      pushToast({ type: 'error', title: '批次送件失敗', message: firstError });
+      return;
+    }
     if (!valid.length) {
       pushToast({ type: 'error', title: '批次送件失敗', message: '沒有可送出的有效資料，請檢查紅字列。' });
       return;
@@ -343,7 +354,7 @@ export function CaseRegistrationPage({
         <form className="card form-grid" onSubmit={submitSingle}>
           {batchColumns.map((column) => (
             <label key={column.key}>
-              <span>{column.label}</span>
+              <span>{column.key === 'group_no' ? '團號 *' : column.label}</span>
               {renderField(single, updateSingle, column.key, -1)}
             </label>
           ))}
@@ -371,7 +382,7 @@ export function CaseRegistrationPage({
           </div>
           <div className="table-wrap batch-grid-wrap">
             <table className="data-table batch-table">
-              <thead><tr>{batchColumns.map((column) => <th key={column.key}>{column.label}</th>)}<th>錯誤</th><th>操作</th></tr></thead>
+              <thead><tr>{batchColumns.map((column) => <th key={column.key}>{column.key === 'group_no' ? '團號 *' : column.label}</th>)}<th>錯誤</th><th>操作</th></tr></thead>
               <tbody>
                 {rows.map((row, index) => (
                   <tr key={index} className={row.error ? 'row-error' : ''}>

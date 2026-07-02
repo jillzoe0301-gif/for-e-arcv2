@@ -38,3 +38,7 @@ export function canDeletePickupRecord(role: Role | undefined): boolean {
 export function canManageAnnouncements(role: Role | undefined): boolean {
   return role === 'admin' || role === 'staff';
 }
+
+export function canCompletePickup(role: Role | undefined): boolean {
+  return role === 'admin' || role === 'staff';
+}

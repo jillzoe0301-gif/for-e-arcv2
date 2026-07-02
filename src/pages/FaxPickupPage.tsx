@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { addFaxPickupPlan, createPickupRecord, deletePickupRecord, markPickupNotReceived } from '../api/repository';
+import { addFaxPickupPlan, createPickupRecord, deletePickupRecord, markCasePickedUp, markPickupNotReceived } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
@@ -7,8 +7,8 @@ import { SearchInput } from '../components/SearchInput';
 import { CaseStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, FaxPickupItem, PickupRecord, PickupRecordItem, Profile } from '../types';
-import { formatDate, nextWeekThursday, taipeiWeekday, todayTaipei } from '../utils/date';
-import { canDeletePickupRecord } from '../utils/permissions';
+import { formatDate, nextWeekThursday, parseDateLoose, taipeiWeekday, todayTaipei } from '../utils/date';
+import { canCompletePickup, canDeletePickupRecord } from '../utils/permissions';
 import { printFaxAndSignatureSheets, printFaxPickupSheet, printSignatureSheet } from '../utils/print';
 import { rowMatchesKeyword } from '../utils/search';
 
@@ -23,6 +23,8 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   const [deleteTarget, setDeleteTarget] = useState<PickupRecord | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [printHandler, setPrintHandler] = useState(profile?.display_name ?? '');
+  const [pickedUpTarget, setPickedUpTarget] = useState<ArcCase | null>(null);
+  const [pickedUpDate, setPickedUpDate] = useState(todayTaipei());
 
   const weekday = taipeiWeekday();
   const reminders = [
@@ -155,6 +157,34 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
+
+  function openPickedUp(row: ArcCase) {
+    if (!canCompletePickup(profile?.role)) {
+      pushToast({ type: 'warning', title: '您沒有操作已領件的權限。' });
+      return;
+    }
+    setPickedUpTarget(row);
+    setPickedUpDate(todayTaipei());
+  }
+
+  async function confirmPickedUp() {
+    if (!pickedUpTarget) return;
+    const parsedDate = parseDateLoose(pickedUpDate);
+    if (!parsedDate) {
+      pushToast({ type: 'warning', title: '領件日格式不正確，請重新輸入。' });
+      return;
+    }
+    try {
+      await markCasePickedUp({ caseRow: pickedUpTarget, pickupDate: parsedDate, data, actor: profile });
+      pushToast({ type: 'success', title: '已領件完成', message: `${pickedUpTarget.employer_name}｜${pickedUpTarget.worker_name}` });
+      setPickedUpTarget(null);
+      setPickedUpDate(todayTaipei());
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '已領件失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
   function printableRows() {
     return plannedItems
       .filter((item) => selectedPlanIds.includes(item.id))
@@ -240,7 +270,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name },
     { key: 'order', title: '收據順序', render: (row: ArcCase) => <input className="mini-input number" value={draftFor(row).receipt_order} onChange={(e) => setDraft(row.id, 'receipt_order', e.target.value)} /> },
     { key: 'date', title: '領件日', render: (row: ArcCase) => <input type="date" className="mini-input date" value={draftFor(row).expected_pickup_date} onChange={(e) => setDraft(row.id, 'expected_pickup_date', e.target.value)} /> },
-    { key: 'action', title: '單筆領件', render: (row: ArcCase) => <div className="action-stack"><button className="secondary-button mini" onClick={() => addPlan(row)}>加入預計</button><button className="primary-button mini" onClick={() => singlePickup(row)}>單筆領件</button></div> }
+    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack"><button className="secondary-button mini" onClick={() => addPlan(row)}>加入預計</button><button className="primary-button mini" onClick={() => singlePickup(row)}>單筆領件</button><button className="secondary-button mini" onClick={() => openPickedUp(row)}>已領件</button></div> }
   ];
 
   const planRows = plannedItems.map((plan) => ({ plan, caseRow: data.cases.find((item) => item.id === plan.case_id)! })).filter((row) => row.caseRow);
@@ -317,6 +347,17 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
           );
         })}
       </section>
+      {pickedUpTarget ? (
+        <Modal title="確認已領件" onClose={() => setPickedUpTarget(null)}>
+          <p>請輸入實際領件日，完成後案件會自移民署傳真領件與預計領件區移除，並保留於案件查詢。</p>
+          <div className="summary-box">
+            <strong>{pickedUpTarget.employer_name}｜{pickedUpTarget.worker_name}</strong>
+            <span>團號：{pickedUpTarget.group_no ?? ''}</span>
+          </div>
+          <label><span>領件日</span><input value={pickedUpDate} onChange={(e) => setPickedUpDate(e.target.value)} onBlur={() => setPickedUpDate((current) => parseDateLoose(current) ?? current)} placeholder="YYYY-MM-DD" /></label>
+          <div className="form-actions"><button className="primary-button" onClick={confirmPickedUp}>確認已領件</button></div>
+        </Modal>
+      ) : null}
       {deleteTarget ? (
         <Modal title="刪除傳真領件紀錄" onClose={() => setDeleteTarget(null)}>
           <p>確定要刪除此筆傳真領件紀錄嗎？刪除後不可復原。</p>

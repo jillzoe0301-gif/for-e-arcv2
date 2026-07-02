@@ -133,6 +133,7 @@ export interface ArcCase {
   receipt_order?: number | null;
   fax_date?: string | null;
   expected_pickup_date?: string | null;
+  pickup_date?: string | null;
   pickup_record_id?: string | null;
   pickup_status?: PickupItemStatus | null;
   note?: string | null;

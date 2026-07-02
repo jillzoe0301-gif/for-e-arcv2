@@ -685,6 +685,73 @@ export async function markPickupNotReceived(params: {
   });
 }
 
+
+export async function markCasePickedUp(params: {
+  caseRow: ArcCase;
+  pickupDate: string;
+  data: ArcData;
+  actor: Profile | null;
+}) {
+  const { caseRow, pickupDate, data, actor } = params;
+  if (actor?.role !== 'admin' && actor?.role !== 'staff') throw new Error('您沒有操作已領件的權限。');
+  const pendingPlans = data.faxPickupItems.filter((item) => item.case_id === caseRow.id && item.status === 'pending');
+  if (pendingPlans.length) {
+    const { error: planError } = await supabase
+      .from('fax_pickup_items')
+      .update({ status: 'picked_up', updated_by: actor?.id })
+      .in('id', pendingPlans.map((item) => item.id));
+    if (planError) throw planError;
+  }
+
+  const patchWithPickupDate: Partial<ArcCase> & { pickup_date?: string } = {
+    status: 'completed',
+    pickup_status: 'picked_up',
+    pickup_date: pickupDate,
+    expected_pickup_date: pickupDate,
+    updated_by: actor?.id
+  };
+  const { error: caseError } = await supabase.from('arc_cases').update(patchWithPickupDate).eq('id', caseRow.id);
+  if (caseError) {
+    const message = `${caseError.message ?? ''} ${caseError.code ?? ''}`;
+    if (message.includes('pickup_date') || message.includes('PGRST204') || message.includes('42703')) {
+      const fallbackPatch = { ...patchWithPickupDate };
+      delete fallbackPatch.pickup_date;
+      const { error: fallbackError } = await supabase.from('arc_cases').update(fallbackPatch).eq('id', caseRow.id);
+      if (fallbackError) throw fallbackError;
+    } else {
+      throw caseError;
+    }
+  }
+
+  await addAudit({
+    action_type: '已領件',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '傳真/領件',
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: {
+      case_no: caseRow.case_no,
+      employer_name: caseRow.employer_name,
+      worker_name: caseRow.worker_name,
+      group_no: caseRow.group_no,
+      status: caseRow.status,
+      pickup_status: caseRow.pickup_status,
+      expected_pickup_date: caseRow.expected_pickup_date,
+      pickup_date: caseRow.pickup_date ?? null
+    },
+    new_data: {
+      case_no: caseRow.case_no,
+      employer_name: caseRow.employer_name,
+      worker_name: caseRow.worker_name,
+      group_no: caseRow.group_no,
+      status: 'completed',
+      pickup_status: 'picked_up',
+      pickup_date: pickupDate
+    }
+  });
+}
+
 export async function deletePickupRecord(record: PickupRecord, reason: string, actor: Profile | null) {
   assertAdmin(actor);
   return rpcOrFallback('arc_delete_pickup_record_v2', {

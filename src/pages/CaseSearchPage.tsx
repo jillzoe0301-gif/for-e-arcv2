@@ -63,7 +63,10 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     { key: 'amount', title: '金額', render: (row: ArcCase) => formatMoney(row.amount) },
     { key: 'receipt', title: '收件編號', render: (row: ArcCase) => row.receipt_no ?? '' },
     { key: 'foreign', title: '外字五碼', render: (row: ArcCase) => row.foreign_no_last5 ?? '' },
-    { key: 'date', title: '申請日', render: (row: ArcCase) => formatDate(row.application_date) },
+    { key: 'application_date', title: '申請日', render: (row: ArcCase) => formatDate(row.application_date) },
+    { key: 'payment_date', title: '收費日期', render: (row: ArcCase) => formatDate(row.payment_date) },
+    { key: 'fax_date', title: '傳真日期', render: (row: ArcCase) => formatDate(row.fax_date) },
+    { key: 'pickup_date', title: '領件日', render: (row: ArcCase) => formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) },
     { key: 'delete', title: '刪除', render: (row: ArcCase) => canDeleteData(profile?.role) ? <button className="danger-link" onClick={() => remove(row)}>刪除</button> : null }
   ];
 
