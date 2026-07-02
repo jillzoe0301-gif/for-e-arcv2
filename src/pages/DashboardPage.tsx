@@ -8,6 +8,7 @@ import { monthKey, todayTaipei, taipeiWeekday } from '../utils/date';
 import { IconImage } from '../utils/icons';
 import { formatMoney } from '../utils/number';
 import { canManageAnnouncements } from '../utils/permissions';
+import { APP_UPDATED_AT, APP_UPDATE_NOTE, APP_VERSION } from '../utils/version';
 
 const reminderItems = [
   { title: '週一繳費', content: '整理待繳案件與扣款帳號，送出前確認批次資料。', weekday: 1, dayText: '每週一' },
@@ -119,7 +120,7 @@ export function DashboardPage({ data, profile, reload }: { data: ArcData; profil
   const pendingPickup = data.cases.filter((item) => item.status === 'pending_pickup' || item.status === 'not_received').length;
   const cancelled = data.cases.filter((item) => item.status === 'cancelled').length;
   const activeBatches = data.batches.filter((item) => !item.deleted_at);
-  const pendingBatch = activeBatches.filter((item) => item.status === 'pending' || item.status === 'amount_error').length;
+  const pendingBatch = activeBatches.filter((item) => item.status !== 'confirmed' && item.status !== 'cancelled').length;
   const confirmedBatch = activeBatches.filter((item) => item.status === 'confirmed').length;
   const today = todayTaipei();
   const currentMonth = monthKey(today);
@@ -137,7 +138,7 @@ export function DashboardPage({ data, profile, reload }: { data: ArcData; profil
 
   return (
     <div className="page-content">
-      <PageHeader title="總覽" description={`今日：${today}（Asia/Taipei）`} />
+      <div className="dashboard-header-row"><PageHeader title="總覽" description={`今日：${today}（Asia/Taipei）`} /><div className="version-pill"><strong>目前版本：{APP_VERSION}</strong><span>更新日期：{APP_UPDATED_AT}</span><small>{APP_UPDATE_NOTE}</small></div></div>
       <DashboardAnnouncementEditor announcements={data.announcements} profile={profile} reload={reload} />
       {profile?.role === 'finance' ? (
         <div className="dashboard-grid finance-dashboard-grid">

@@ -131,6 +131,8 @@ export interface ArcCase {
   receipt_no?: string | null;
   foreign_no_last5?: string | null;
   receipt_order?: number | null;
+  old_card_checked?: boolean | null;
+  handler_last4?: string | null;
   fax_date?: string | null;
   expected_pickup_date?: string | null;
   pickup_date?: string | null;
@@ -197,6 +199,8 @@ export interface FaxPickupItem {
   receipt_no: string;
   foreign_no_last5: string;
   receipt_order: number;
+  old_card_checked?: boolean | null;
+  handler_last4?: string | null;
   fax_date: string;
   expected_pickup_date: string;
   status: PickupItemStatus;

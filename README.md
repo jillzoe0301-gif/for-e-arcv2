@@ -1,18 +1,18 @@
-# ARC V13 V37.6｜行政權限與財務資料顯示修正
+# ARC V13.38 更新
 
-本版修正：
+本版重點：繳費批次明細增減、批次狀態簡化、傳真領件欄位與首頁版本顯示修正。
 
-- 行政角色改為可看到所有功能頁面。
-- 行政可進入財務對帳確認與財務查詢，並可看到財務批次資料。
-- 行政可修改財務對帳確認 / 財務查詢的明細資料。
-- 行政不可刪除會計 / 財務資料，刪除仍僅限管理員。
-- 行政不可修改其他人的帳號密碼；帳號密碼、角色、停用、刪除仍僅管理員可維護。
-- 財務表資料的 Supabase RLS 已補上行政讀取 / 修改權限。
+## 必跑 SQL
+先到 Supabase SQL Editor 執行：
 
-## 重要
+`supabase/migrations/202607020007_arc_v13_v38_batch_fax_version.sql`
 
-本版需要先到 Supabase SQL Editor 執行：
+## 部署
 
-`supabase/migrations/202607020006_arc_v13_v37_6_staff_permissions.sql`
-
-若未執行 SQL，行政角色仍可能看不到財務對帳確認與財務查詢資料。
+```bash
+npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
+npm run build
+git add -A
+git commit -m "update ARC V13.38 batch detail fax fields version"
+git push origin main
+```

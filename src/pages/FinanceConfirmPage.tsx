@@ -1,19 +1,23 @@
 import { useMemo, useState } from 'react';
 import {
+  addCasesToPaymentBatch,
   adjustFinanceConfirmAccountBalance,
   confirmPaymentBatch,
   updateFinanceDetailCase,
   deletePaymentBatch,
+  removePaymentBatchItem,
   updatePaymentBatchDate
 } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
+import { SearchInput } from '../components/SearchInput';
 import { BatchStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
 import type { ArcCase, ArcData, BankAccount, PaymentBatch, PaymentBatchItem, Profile } from '../types';
 import { displayDateTime, formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
+import { rowMatchesKeyword } from '../utils/search';
 import { canAdjustFinanceConfirmBalance, canCompleteFinanceBatch, canDeleteData, canEditFinanceDetail, canModifyFinanceBatchDate } from '../utils/permissions';
 
 type AccountBalanceRow = {
@@ -90,10 +94,13 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const [detailDraft, setDetailDraft] = useState<DetailEditDraft>({ employer_name: '', worker_name: '', group_no: '', entry_date: '', application_date: '', application_item_id: '', amount: '', reason: '' });
   const [dateEditor, setDateEditor] = useState<{ batch: PaymentBatch; value: string } | null>(null);
   const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
+  const [isAddCaseOpen, setIsAddCaseOpen] = useState(false);
+  const [addCaseKeyword, setAddCaseKeyword] = useState('');
+  const [selectedAddCaseIds, setSelectedAddCaseIds] = useState<string[]>([]);
 
   const batches = useMemo(() => data.batches
     .filter((item) => item.deleted_at == null)
-    .filter((item) => item.status === 'pending' || item.status === 'amount_error')
+    .filter((item) => item.status !== 'confirmed' && item.status !== 'cancelled')
     .sort((a, b) => `${b.payment_date}${b.batch_no}`.localeCompare(`${a.payment_date}${a.batch_no}`)), [data.batches]);
 
   const selectedBatch = batches.find((item) => item.id === selectedBatchId) ?? batches[0];
@@ -103,6 +110,25 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const details = batchItems
     .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) }))
     .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
+
+  const addableCases = useMemo(() => {
+    if (!selectedBatch) return [];
+    const existingCaseIds = new Set(details.map((entry) => entry.caseRow.id));
+    return data.cases
+      .filter((caseRow) => caseRow.status === 'pending_payment' && !caseRow.payment_batch_id && !caseRow.payment_account_id)
+      .filter((caseRow) => caseRow.broker_id === selectedBatch.broker_id)
+      .filter((caseRow) => !existingCaseIds.has(caseRow.id))
+      .filter((caseRow) => rowMatchesKeyword(addCaseKeyword, [
+        caseRow.employer_name,
+        caseRow.worker_name,
+        caseRow.group_no,
+        caseRow.case_no,
+        data.applicationItems.find((item) => item.id === caseRow.application_item_id)?.name,
+        caseRow.handler_name,
+        data.brokers.find((broker) => broker.id === caseRow.broker_id)?.name
+      ]))
+      .sort((a, b) => String(a.application_date).localeCompare(String(b.application_date)) || String(a.case_no).localeCompare(String(b.case_no), 'zh-Hant', { numeric: true }));
+  }, [addCaseKeyword, data.applicationItems, data.brokers, data.cases, details, selectedBatch]);
 
   const accountRows = useMemo<AccountBalanceRow[]>(() => data.accounts
     .filter((account) => account.is_enabled)
@@ -288,6 +314,51 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   }
 
 
+  function openAddCasesModal() {
+    if (!selectedBatch) return;
+    if (selectedBatch.status === 'confirmed') {
+      pushToast({ type: 'warning', title: '已對帳完成的批次不可新增案件。' });
+      return;
+    }
+    setSelectedAddCaseIds([]);
+    setAddCaseKeyword('');
+    setIsAddCaseOpen(true);
+  }
+
+  function toggleAddCase(caseId: string) {
+    setSelectedAddCaseIds((current) => current.includes(caseId) ? current.filter((id) => id !== caseId) : [...current, caseId]);
+  }
+
+  async function submitAddCases() {
+    if (!selectedBatch) return;
+    try {
+      await addCasesToPaymentBatch({ batch: selectedBatch, caseIds: selectedAddCaseIds, data, actor: profile });
+      pushToast({ type: 'success', title: '已新增案件至批次', message: '案件已自居留證繳費待繳區移除。' });
+      setIsAddCaseOpen(false);
+      setSelectedAddCaseIds([]);
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '新增案件失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
+  async function removeDetailFromBatch(entry: { item: PaymentBatchItem; caseRow: ArcCase }) {
+    if (!selectedBatch) return;
+    if (selectedBatch.status === 'confirmed') {
+      pushToast({ type: 'warning', title: '已對帳完成的批次不可移除案件。' });
+      return;
+    }
+    if (!window.confirm('確定要將此案件移出本繳費批次嗎？移除後會回到待繳區。')) return;
+    try {
+      await removePaymentBatchItem({ batch: selectedBatch, item: entry.item, caseRow: entry.caseRow, data, actor: profile });
+      pushToast({ type: 'success', title: '已移出批次', message: '案件已回到居留證繳費待繳區。' });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '移除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
+
   const accountBalanceColumns = [
     { key: 'broker', title: '仲介', render: (row: AccountBalanceRow) => row.brokerName },
     { key: 'account', title: '帳戶名稱', render: (row: AccountBalanceRow) => row.account.account_name },
@@ -363,7 +434,12 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     { key: 'payment_date', title: '繳費日期', render: () => formatDate(selectedBatch?.payment_date) },
     { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
     { key: 'correction', title: '修正紀錄', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatCorrectionRecord(row.item, row.caseRow, data) },
-    { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => canEditFinanceDetailFlag ? <button className="danger-button mini" onClick={() => openCorrection(row)}>修改明細</button> : null }
+    { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => (
+      <div className="action-stack horizontal compact-actions">
+        {canEditFinanceDetailFlag ? <button className="secondary-button mini" onClick={() => openCorrection(row)}>修改明細</button> : null}
+        {selectedBatch?.status !== 'confirmed' ? <button className="danger-link mini" onClick={() => removeDetailFromBatch(row)}>移除</button> : null}
+      </div>
+    ) }
   ];
 
   return (
@@ -405,11 +481,31 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
           <div className="receipt-path-note inline">收據存放路徑：Z:\行政\$移民署繳費</div>
 
           <div className="toolbar-row">
+            {selectedBatch.status !== 'confirmed' ? <button className="secondary-button" onClick={openAddCasesModal}>新增案件至批次</button> : null}
             {mayCompleteBatch ? <button className="primary-button" onClick={() => completeBatch(selectedBatch)}>對帳完成並轉入財務查詢</button> : null}
             <span className="subtle-text">項目金額錯誤請在單筆明細右側修正。帳戶餘額請於上方「所有帳戶餘額」區塊調整。</span>
           </div>
           <DataTable columns={detailColumns} rows={details} rowKey={(row) => row.item.id} emptyText="此批次沒有明細" />
         </section>
+      ) : null}
+
+
+      {isAddCaseOpen && selectedBatch ? (
+        <Modal title="新增案件至批次" onClose={() => setIsAddCaseOpen(false)}>
+          <p className="subtle-text">只能加入同仲介且仍在居留證繳費待繳區的案件。加入後會自待繳區移除，並重新計算批次件數與總金額。</p>
+          <SearchInput id="addCaseToBatchSearch" value={addCaseKeyword} onCommit={setAddCaseKeyword} placeholder="雇主 / 工人 / 團號 / 申請項目 / 承辦 / 仲介搜尋" />
+          <DataTable columns={[
+            { key: 'check', title: '選取', render: (row: ArcCase) => <input type="checkbox" checked={selectedAddCaseIds.includes(row.id)} onChange={() => toggleAddCase(row.id)} /> },
+            { key: 'case_no', title: '案件編號', render: (row: ArcCase) => row.case_no },
+            { key: 'employer', title: '雇主', render: (row: ArcCase) => row.employer_name },
+            { key: 'worker', title: '工人', render: (row: ArcCase) => row.worker_name },
+            { key: 'group', title: '團號', render: (row: ArcCase) => row.group_no ?? '' },
+            { key: 'item', title: '申請項目', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '' },
+            { key: 'amount', title: '金額', render: (row: ArcCase) => formatMoney(row.amount) },
+            { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name }
+          ]} rows={addableCases} rowKey={(row) => row.id} emptyText="沒有可加入此批次的待繳案件" />
+          <div className="form-actions"><button className="primary-button" onClick={submitAddCases}>加入所選案件</button></div>
+        </Modal>
       ) : null}
 
       {dateEditor ? (

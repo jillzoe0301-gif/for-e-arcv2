@@ -586,7 +586,7 @@ export async function correctPaymentItem(params: {
     return sum + Number(row.corrected_amount ?? row.original_amount ?? 0);
   }, 0);
   const { error: batchError } = await supabase.from('payment_batches').update({
-    status: 'amount_error',
+    status: 'pending',
     total_amount: recalculatedTotal,
     updated_by: actor?.id
   }).eq('id', batch.id);
@@ -697,7 +697,7 @@ export async function updateFinanceDetailCase(params: {
       return sum + Number(row.corrected_amount ?? row.original_amount ?? 0);
     }, 0);
     const batchPatch: Record<string, unknown> = { total_amount: recalculatedTotal, updated_by: actor.id };
-    if (batch.status !== 'confirmed') batchPatch.status = 'amount_error';
+    if (batch.status !== 'confirmed') batchPatch.status = 'pending';
     const { error: batchError } = await supabase.from('payment_batches').update(batchPatch).eq('id', batch.id);
     if (batchError) throw batchError;
   }
@@ -741,6 +741,218 @@ export async function updateFinanceDetailCase(params: {
 }
 
 
+async function recalculatePaymentBatch(batchId: string, actor: Profile | null) {
+  const { data: latestBatchItems, error: latestItemsError } = await supabase
+    .from('payment_batch_items')
+    .select('*')
+    .eq('batch_id', batchId);
+  if (latestItemsError) throw latestItemsError;
+  const rows = (latestBatchItems ?? []) as PaymentBatchItem[];
+  const total = rows.reduce((sum, row) => sum + Number(row.corrected_amount ?? row.original_amount ?? 0), 0);
+  const { error: batchError } = await supabase.from('payment_batches').update({
+    total_amount: total,
+    case_count: rows.length,
+    updated_by: actor?.id
+  }).eq('id', batchId);
+  if (batchError) throw batchError;
+  return { total, count: rows.length };
+}
+
+export async function addCasesToPaymentBatch(params: {
+  batch: PaymentBatch;
+  caseIds: string[];
+  data: ArcData;
+  actor: Profile | null;
+}) {
+  const { batch, caseIds, data, actor } = params;
+  if (!actor || !['admin', 'finance', 'staff'].includes(actor.role)) throw new Error('您沒有新增案件至批次的權限。');
+  if (batch.status === 'confirmed') throw new Error('已對帳完成的批次不可新增案件。');
+  const uniqueCaseIds = Array.from(new Set(caseIds));
+  if (!uniqueCaseIds.length) throw new Error('請先選擇要加入批次的待繳案件。');
+  const existingCaseIds = new Set(data.batchItems.filter((item) => item.batch_id === batch.id).map((item) => item.case_id));
+  const selectedCases = data.cases.filter((caseRow) => uniqueCaseIds.includes(caseRow.id));
+  if (selectedCases.length !== uniqueCaseIds.length) throw new Error('部分案件不存在，請重新整理後再試。');
+  if (selectedCases.some((caseRow) => existingCaseIds.has(caseRow.id))) throw new Error('不可將同一案件重複加入同一批次。');
+  if (selectedCases.some((caseRow) => caseRow.broker_id !== batch.broker_id)) throw new Error('不可將不同仲介案件加入同一繳費批次。');
+  if (selectedCases.some((caseRow) => caseRow.status !== 'pending_payment' || caseRow.payment_batch_id || caseRow.payment_account_id)) {
+    throw new Error('只能加入居留證繳費待繳區中的案件。');
+  }
+
+  const itemRows = selectedCases.map((caseRow) => ({
+    batch_id: batch.id,
+    case_id: caseRow.id,
+    original_application_item_id: caseRow.application_item_id,
+    original_amount: Number(caseRow.amount ?? 0)
+  }));
+  const { error: insertError } = await supabase.from('payment_batch_items').insert(itemRows);
+  if (insertError) throw insertError;
+
+  for (const caseRow of selectedCases) {
+    const appItem = data.applicationItems.find((item) => item.id === caseRow.application_item_id);
+    const { error: caseError } = await supabase.from('arc_cases').update({
+      status: statusAfterPayment(appItem),
+      payment_batch_id: batch.id,
+      payment_date: batch.payment_date,
+      payment_account_id: batch.account_id,
+      updated_by: actor.id
+    }).eq('id', caseRow.id);
+    if (caseError) throw caseError;
+  }
+
+  const addTotal = selectedCases.reduce((sum, caseRow) => sum + Number(caseRow.amount ?? 0), 0);
+  const account = data.accounts.find((item) => item.id === batch.account_id);
+  if (account && addTotal) {
+    const before = Number(account.current_balance ?? 0);
+    const after = before - addTotal;
+    const { error: accountError } = await supabase.from('bank_accounts').update({ current_balance: after, updated_by: actor.id }).eq('id', account.id);
+    if (accountError) throw accountError;
+    const { error: txnError } = await supabase.from('account_transactions').insert({
+      account_id: account.id,
+      txn_type: 'debit_add_cases_to_batch',
+      amount: -addTotal,
+      balance_before: before,
+      balance_after: after,
+      ref_table: 'payment_batches',
+      ref_id: batch.id,
+      reason: `新增案件至繳費批次 ${batch.batch_no}`,
+      created_by: actor.id
+    });
+    if (txnError) throw txnError;
+  }
+
+  const recalculated = await recalculatePaymentBatch(batch.id, actor);
+  await addAudit({
+    action_type: '新增案件至繳費批次',
+    actor_id: actor.id,
+    actor_name: actor.display_name,
+    page_name: '財務對帳確認',
+    record_table: 'payment_batches',
+    record_id: batch.id,
+    old_data: { 繳費批次編號: batch.batch_no, 原件數: batch.case_count, 原總金額: batch.total_amount },
+    new_data: {
+      繳費批次編號: batch.batch_no,
+      加入案件: selectedCases.map((caseRow) => ({
+        案件編號: caseRow.case_no,
+        雇主: caseRow.employer_name,
+        工人: caseRow.worker_name,
+        申請項目: caseRow.application_item_id,
+        金額: caseRow.amount
+      })),
+      新件數: recalculated.count,
+      新總金額: recalculated.total
+    },
+    reason: '從居留證繳費待繳區加入目前繳費批次。'
+  });
+}
+
+export async function removePaymentBatchItem(params: {
+  batch: PaymentBatch;
+  item: PaymentBatchItem;
+  caseRow: ArcCase;
+  data: ArcData;
+  actor: Profile | null;
+}) {
+  const { batch, item, caseRow, data, actor } = params;
+  if (!actor || !['admin', 'finance', 'staff'].includes(actor.role)) throw new Error('您沒有移除批次案件的權限。');
+  if (batch.status === 'confirmed') throw new Error('已對帳完成的批次不可移除案件。');
+  const itemAmount = Number(item.corrected_amount ?? item.original_amount ?? caseRow.amount ?? 0);
+  const nextApplicationItemId = item.corrected_application_item_id ?? caseRow.application_item_id;
+
+  const { error: itemError } = await supabase.from('payment_batch_items').delete().eq('id', item.id);
+  if (itemError) throw itemError;
+
+  const { error: caseError } = await supabase.from('arc_cases').update({
+    status: 'pending_payment',
+    application_item_id: nextApplicationItemId,
+    amount: itemAmount,
+    payment_batch_id: null,
+    payment_date: null,
+    payment_account_id: null,
+    updated_by: actor.id
+  }).eq('id', caseRow.id);
+  if (caseError) throw caseError;
+
+  const account = data.accounts.find((accountRow) => accountRow.id === batch.account_id);
+  if (account && itemAmount) {
+    const before = Number(account.current_balance ?? 0);
+    const after = before + itemAmount;
+    const { error: accountError } = await supabase.from('bank_accounts').update({ current_balance: after, updated_by: actor.id }).eq('id', account.id);
+    if (accountError) throw accountError;
+    const { error: txnError } = await supabase.from('account_transactions').insert({
+      account_id: account.id,
+      txn_type: 'reverse_remove_case_from_batch',
+      amount: itemAmount,
+      balance_before: before,
+      balance_after: after,
+      ref_table: 'payment_batches',
+      ref_id: batch.id,
+      reason: `案件移出繳費批次 ${batch.batch_no}，回到待繳區`,
+      created_by: actor.id
+    });
+    if (txnError) throw txnError;
+  }
+
+  const recalculated = await recalculatePaymentBatch(batch.id, actor);
+  await addAudit({
+    action_type: '移除繳費批次案件',
+    actor_id: actor.id,
+    actor_name: actor.display_name,
+    page_name: '財務對帳確認',
+    record_table: 'payment_batch_items',
+    record_id: item.id,
+    old_data: {
+      批次編號: batch.batch_no,
+      移除案件編號: caseRow.case_no,
+      雇主: caseRow.employer_name,
+      工人: caseRow.worker_name,
+      申請項目: nextApplicationItemId,
+      金額: itemAmount,
+      原批次項目: item
+    },
+    new_data: { 新件數: recalculated.count, 新總金額: recalculated.total, 流向: '回到居留證繳費待繳區' },
+    reason: '移出本繳費批次並回到居留證繳費待繳區。'
+  });
+}
+
+export async function updateCaseFaxOptions(params: {
+  caseRow: ArcCase;
+  oldCardChecked?: boolean;
+  handlerLast4?: string;
+  actor: Profile | null;
+}) {
+  const { caseRow, oldCardChecked, handlerLast4, actor } = params;
+  const patch: Partial<ArcCase> & { updated_by?: string } = { updated_by: actor?.id };
+  const oldData: Record<string, unknown> = { 案件編號: caseRow.case_no };
+  const newData: Record<string, unknown> = { 案件編號: caseRow.case_no };
+  if (oldCardChecked !== undefined && oldCardChecked !== caseRow.old_card_checked) {
+    patch.old_card_checked = oldCardChecked;
+    oldData.原舊卡狀態 = Boolean(caseRow.old_card_checked);
+    newData.新舊卡狀態 = oldCardChecked;
+  }
+  if (handlerLast4 !== undefined) {
+    const clean = handlerLast4.trim().replace(/\D/g, '').slice(0, 4);
+    if (clean !== (caseRow.handler_last4 ?? '')) {
+      patch.handler_last4 = clean;
+      oldData.原經手人後四碼 = caseRow.handler_last4 ?? '';
+      newData.新經手人後四碼 = clean;
+    }
+  }
+  if (Object.keys(patch).length <= 1) return;
+  const { error } = await supabase.from('arc_cases').update(patch).eq('id', caseRow.id);
+  if (error) throw error;
+  await addAudit({
+    action_type: oldCardChecked !== undefined && handlerLast4 === undefined ? '舊卡狀態修改' : handlerLast4 !== undefined && oldCardChecked === undefined ? '經手人後四碼修改' : '傳真領件欄位修改',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '傳真/領件',
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: oldData,
+    new_data: newData
+  });
+}
+
+
 export async function adjustAccountBalance(account: BankAccount, nextBalance: number, reason: string, actor: Profile | null) {
   const before = Number(account.current_balance ?? 0);
   const delta = nextBalance - before;
@@ -778,8 +990,10 @@ export async function addFaxPickupPlan(params: {
   expectedPickupDate: string;
   data: ArcData;
   actor: Profile | null;
+  oldCardChecked?: boolean;
+  handlerLast4?: string;
 }) {
-  const { caseRow, receiptNo, foreignNoLast5, receiptOrder, faxDate, expectedPickupDate, data, actor } = params;
+  const { caseRow, receiptNo, foreignNoLast5, receiptOrder, faxDate, expectedPickupDate, data, actor, oldCardChecked, handlerLast4 } = params;
   const duplicateOrder = data.faxPickupItems.find((item) =>
     item.status === 'pending' &&
     item.expected_pickup_date === expectedPickupDate &&
@@ -790,7 +1004,7 @@ export async function addFaxPickupPlan(params: {
     const used = Math.max(...data.faxPickupItems
       .filter((item) => item.status === 'pending' && item.expected_pickup_date === expectedPickupDate)
       .map((item) => Number(item.receipt_order || 0)), 0);
-    throw new Error(`收據順序不可重複，目前已使用到第 ${used} 號，建議輸入第 ${used + 1} 號`);
+    throw new Error(`此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${used + 1} 號。`);
   }
   const existing = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
   const payload = {
@@ -798,6 +1012,8 @@ export async function addFaxPickupPlan(params: {
     receipt_no: receiptNo,
     foreign_no_last5: foreignNoLast5,
     receipt_order: receiptOrder,
+    old_card_checked: oldCardChecked ?? caseRow.old_card_checked ?? false,
+    handler_last4: handlerLast4 !== undefined ? handlerLast4.trim().replace(/\D/g, '').slice(0, 4) : (caseRow.handler_last4 ?? null),
     fax_date: faxDate,
     expected_pickup_date: expectedPickupDate,
     status: 'pending',
@@ -814,6 +1030,8 @@ export async function addFaxPickupPlan(params: {
     receipt_no: receiptNo,
     foreign_no_last5: foreignNoLast5,
     receipt_order: receiptOrder,
+    old_card_checked: oldCardChecked ?? caseRow.old_card_checked ?? false,
+    handler_last4: handlerLast4 !== undefined ? handlerLast4.trim().replace(/\D/g, '').slice(0, 4) : (caseRow.handler_last4 ?? null),
     fax_date: faxDate,
     expected_pickup_date: expectedPickupDate,
     pickup_status: 'pending',
