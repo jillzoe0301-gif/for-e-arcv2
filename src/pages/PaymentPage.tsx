@@ -21,10 +21,15 @@ function strictPaymentAmount(value: unknown): number | null {
   return parsed;
 }
 
-function accountLabel(account: BankAccount, data: ArcData) {
+function isNoBalanceBrokerName(name: string | undefined) {
+  return Boolean(name && (name.includes('灃禾') || name.includes('乾坤')));
+}
+
+function accountLabel(account: BankAccount, data: ArcData, showBalance = true) {
   const broker = data.brokers.find((item) => item.id === account.broker_id);
   const last5 = account.account_last5 ?? account.account_no.slice(-5);
-  return `${broker?.name ?? ''}｜${account.account_name}｜後五碼 ${last5}｜餘額 ${formatMoney(account.current_balance)}`;
+  const base = `${broker?.name ?? ''}｜${account.account_name}｜後五碼 ${last5}`;
+  return showBalance ? `${base}｜餘額 ${formatMoney(account.current_balance)}` : base;
 }
 
 function shortAccountLabel(account: BankAccount) {
@@ -310,6 +315,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     <div className="page-content payment-page">
       <PageHeader title="居留證繳費" description="待繳案件依仲介分區顯示；每個仲介區塊可獨立選帳戶、勾選與扣款。" />
       <AnnouncementBanner items={data.announcements} page="居留證繳費" />
+      <div className="payment-fixed-warning">乾坤、灃禾繳費前請先與財務確認。</div>
       <section className="card full-width-card payment-search-card">
         <div className="search-toolbar payment-search-toolbar">
           <SearchInput id="pendingPaymentSearch" value={keyword} onCommit={setKeyword} placeholder="搜尋待繳案件：雇主、工人、團號、案件編號" />
@@ -321,6 +327,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
         {brokerGroups.length ? brokerGroups.map((group) => {
           const { broker, cases, accounts, selectedCases, selectedAccount, selectedAccountId, pendingTotal, selectedTotal, accountWarning, multiAccountNotice } = group;
           const meta = getBrokerMeta(broker.id);
+          const hideBalance = isNoBalanceBrokerName(broker.name);
           return (
             <section className="broker-payment-card" key={broker.id}>
               <div className="broker-payment-head">
@@ -341,10 +348,12 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
                   <strong>{selectedAccount ? shortAccountLabel(selectedAccount) : '尚未選擇扣款帳號'}</strong>
                   {selectedAccount?.is_default ? <small className="default-account-pill">預設帳戶</small> : null}
                 </div>
-                <div>
-                  <span className="summary-label">目前餘額</span>
-                  <strong>{selectedAccount ? `${formatMoney(selectedAccount.current_balance)} 元` : '-'}</strong>
-                </div>
+                {!hideBalance ? (
+                  <div>
+                    <span className="summary-label">目前餘額</span>
+                    <strong>{selectedAccount ? `${formatMoney(selectedAccount.current_balance)} 元` : '-'}</strong>
+                  </div>
+                ) : null}
                 <div>
                   <span className="summary-label">本區選取</span>
                   <strong>{selectedCases.length} 件</strong>
@@ -355,8 +364,8 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
                 <div className="broker-account-list">
                   {accounts.map((account) => (
                     <button type="button" className={`balance-card copy-card ${account.id === selectedAccountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號並選定本區扣款帳號">
-                      <span>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</span>
-                      <strong>{formatMoney(account.current_balance)}</strong>
+                      <span>{accountLabel(account, data, !hideBalance)}{account.is_default ? '｜預設' : ''}</span>
+                      {!hideBalance ? <strong>{formatMoney(account.current_balance)}</strong> : null}
                       <small>點擊複製帳號 / 選定本區扣款帳號</small>
                     </button>
                   ))}
@@ -366,7 +375,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
               <div className="payment-panel broker-payment-panel">
                 <label><span>繳費日期</span><input type="date" value={meta.paymentDate} onChange={(e) => updateBrokerMeta(broker.id, { paymentDate: e.target.value })} /></label>
                 <label><span>繳款人</span><input value={meta.payerName} onChange={(e) => updateBrokerMeta(broker.id, { payerName: e.target.value })} /></label>
-                <label><span>扣款帳號</span><select value={selectedAccountId} onChange={(e) => setBrokerAccountId(broker.id, e.target.value)}><option value="">請選擇</option>{accounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account, data)}{account.is_default ? '｜預設' : ''}</option>)}</select>{multiAccountNotice ? <small className="payment-account-option-text">{multiAccountNotice}</small> : null}</label>
+                <label><span>扣款帳號</span><select value={selectedAccountId} onChange={(e) => setBrokerAccountId(broker.id, e.target.value)}><option value="">請選擇</option>{accounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account, data, !hideBalance)}{account.is_default ? '｜預設' : ''}</option>)}</select>{multiAccountNotice ? <small className="payment-account-option-text">{multiAccountNotice}</small> : null}</label>
                 <div className="payment-summary"><span>本區已選 {selectedCases.length} 件</span><strong>{formatMoney(selectedTotal)} 元</strong></div>
                 <div className="broker-payment-buttons">
                   <button className="secondary-button" type="button" onClick={() => selectBrokerCases(broker.id)}>本區一鍵勾選</button>

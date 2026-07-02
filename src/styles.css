@@ -903,3 +903,31 @@ input[type="checkbox"] {
   .section-title-row { display: grid; }
   .money-input, .reason-input { max-width: none; min-width: 120px; }
 }
+
+
+/* V37 財務對帳與繳費提醒 */
+.payment-fixed-warning {
+  width: 100%;
+  border: 1px solid #f1b7b7;
+  background: #fff5f5;
+  color: #DA4848;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-weight: 900;
+  letter-spacing: .2px;
+}
+.receipt-path-note {
+  width: 100%;
+  border: 1px solid #d7e5ff;
+  background: #f4f8ff;
+  color: #27548A;
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-weight: 800;
+}
+.receipt-path-note.inline {
+  margin-top: 2px;
+}
+.finance-detail-head-rich > div strong {
+  word-break: break-word;
+}

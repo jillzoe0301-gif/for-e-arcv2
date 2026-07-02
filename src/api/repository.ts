@@ -222,7 +222,17 @@ export async function cancelCasePayment(caseRow: ArcCase, reason: string, actor:
     record_table: 'arc_cases',
     record_id: caseRow.id,
     old_data: caseRow,
-    new_data: patch,
+    new_data: {
+      批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      修正後申請項目: correctedApplicationItemId,
+      修正後金額: correctedAmount,
+      修正原因: reason,
+      修正人: actor?.display_name,
+      修正時間: patch.corrected_at,
+      批次總金額: recalculatedTotal,
+      ...patch
+    },
     reason
   });
 }
@@ -245,7 +255,17 @@ export async function restoreCaseToPayment(caseRow: ArcCase, reason: string, act
     record_table: 'arc_cases',
     record_id: caseRow.id,
     old_data: caseRow,
-    new_data: patch,
+    new_data: {
+      批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      修正後申請項目: correctedApplicationItemId,
+      修正後金額: correctedAmount,
+      修正原因: reason,
+      修正人: actor?.display_name,
+      修正時間: patch.corrected_at,
+      批次總金額: recalculatedTotal,
+      ...patch
+    },
     reason
   });
 }
@@ -306,7 +326,17 @@ export async function removeCaseFromPayment(caseRow: ArcCase, actor: Profile | n
       原金額: caseRow.amount,
       原始資料: caseRow
     },
-    new_data: patch,
+    new_data: {
+      批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      修正後申請項目: correctedApplicationItemId,
+      修正後金額: correctedAmount,
+      修正原因: reason,
+      修正人: actor?.display_name,
+      修正時間: patch.corrected_at,
+      批次總金額: recalculatedTotal,
+      ...patch
+    },
     reason: '管理員從居留證繳費頁移除待繳案件，案件主資料保留於案件查詢。'
   });
 }
@@ -576,7 +606,20 @@ export async function correctPaymentItem(params: {
     updated_by: actor?.id
   }).eq('id', caseRow.id);
   if (caseError) throw caseError;
-  const { error: batchError } = await supabase.from('payment_batches').update({ status: 'amount_error', updated_by: actor?.id }).eq('id', batch.id);
+  const { data: latestBatchItems, error: latestItemsError } = await supabase
+    .from('payment_batch_items')
+    .select('*')
+    .eq('batch_id', batch.id);
+  if (latestItemsError) throw latestItemsError;
+  const recalculatedTotal = (latestBatchItems ?? []).reduce((sum: number, row: PaymentBatchItem) => {
+    if (row.id === item.id) return sum + correctedAmount;
+    return sum + Number(row.corrected_amount ?? row.original_amount ?? 0);
+  }, 0);
+  const { error: batchError } = await supabase.from('payment_batches').update({
+    status: 'amount_error',
+    total_amount: recalculatedTotal,
+    updated_by: actor?.id
+  }).eq('id', batch.id);
   if (batchError) throw batchError;
   await addAudit({
     action_type: '金額修正',
@@ -586,12 +629,26 @@ export async function correctPaymentItem(params: {
     record_table: 'payment_batch_items',
     record_id: item.id,
     old_data: {
+      批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      原申請項目: item.original_application_item_id ?? caseRow.application_item_id,
+      原金額: item.corrected_amount ?? caseRow.amount ?? item.original_amount,
       original_application_item_id: item.original_application_item_id,
       original_amount: item.original_amount,
       case_application_item_id: caseRow.application_item_id,
       case_amount: caseRow.amount
     },
-    new_data: patch,
+    new_data: {
+      批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      修正後申請項目: correctedApplicationItemId,
+      修正後金額: correctedAmount,
+      修正原因: reason,
+      修正人: actor?.display_name,
+      修正時間: patch.corrected_at,
+      批次總金額: recalculatedTotal,
+      ...patch
+    },
     reason
   });
 }
@@ -912,7 +969,17 @@ export async function softDelete(table: string, row: { id: string; [key: string]
     record_table: table,
     record_id: row.id,
     old_data: row,
-    new_data: patch,
+    new_data: {
+      批次編號: batch.batch_no,
+      案件編號: caseRow.case_no,
+      修正後申請項目: correctedApplicationItemId,
+      修正後金額: correctedAmount,
+      修正原因: reason,
+      修正人: actor?.display_name,
+      修正時間: patch.corrected_at,
+      批次總金額: recalculatedTotal,
+      ...patch
+    },
     reason
   });
 }

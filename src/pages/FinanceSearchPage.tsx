@@ -11,13 +11,19 @@ import { formatMoney } from '../utils/number';
 import { canDeleteData } from '../utils/permissions';
 import { rowMatchesKeyword } from '../utils/search';
 
+type FinanceBatchDetailRow = {
+  item: PaymentBatchItem;
+  caseRow: ArcCase;
+  paymentDate: string;
+};
+
 type FinanceBatchRow = {
   batch: PaymentBatch;
   brokerName: string;
   accountName: string;
   accountLast5: string;
   confirmedByName: string;
-  details: Array<{ item: PaymentBatchItem; caseRow: ArcCase }>;
+  details: FinanceBatchDetailRow[];
   balanceTransactions: AccountTransaction[];
 };
 
@@ -27,6 +33,34 @@ type BalanceTransactionRow = {
   accountName: string;
   actorName: string;
 };
+
+function formatCorrectionRecord(item: PaymentBatchItem, caseRow: ArcCase, data: ArcData) {
+  const hasCorrection = Boolean(item.corrected_application_item_id || item.corrected_amount != null || item.correction_reason);
+  if (!hasCorrection) return '';
+
+  const originalApplicationItemId = item.original_application_item_id ?? caseRow.application_item_id;
+  const correctedApplicationItemId = item.corrected_application_item_id ?? originalApplicationItemId;
+  const originalApplicationItemName = data.applicationItems.find((appItem) => appItem.id === originalApplicationItemId)?.name ?? '';
+  const correctedApplicationItemName = data.applicationItems.find((appItem) => appItem.id === correctedApplicationItemId)?.name ?? originalApplicationItemName;
+  const originalAmount = Number(item.original_amount ?? caseRow.amount ?? 0);
+  const correctedAmount = Number(item.corrected_amount ?? originalAmount);
+  const records: string[] = [];
+
+  if (originalApplicationItemId !== correctedApplicationItemId) {
+    records.push(`項目：${originalApplicationItemName} → ${correctedApplicationItemName}`);
+  }
+  if (originalAmount !== correctedAmount) {
+    records.push(`金額：${formatMoney(originalAmount)} → ${formatMoney(correctedAmount)}`);
+  }
+  if (item.correction_reason) {
+    records.push(`原因：${item.correction_reason}`);
+  }
+  if (item.corrected_at) {
+    records.push(`修正時間：${formatDate(item.corrected_at)}`);
+  }
+
+  return records.join('；');
+}
 
 export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -54,8 +88,8 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
         const confirmedBy = data.profiles.find((item) => item.id === batch.confirmed_by);
         const details = data.batchItems
           .filter((item) => item.batch_id === batch.id)
-          .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) }))
-          .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
+          .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id), paymentDate: batch.payment_date }))
+          .filter((entry): entry is FinanceBatchDetailRow => Boolean(entry.caseRow));
         const balanceTransactions = data.accountTransactions
           .filter((txn) => txn.ref_table === 'payment_batches' && txn.ref_id === batch.id)
           .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
@@ -80,16 +114,17 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
           row.batch.status,
           row.confirmedByName
         ];
-        const detailFields = row.details.flatMap(({ item, caseRow }) => [
+        const detailFields = row.details.flatMap(({ item, caseRow, paymentDate }) => [
           caseRow.case_no,
+          caseRow.group_no,
           caseRow.employer_name,
           caseRow.worker_name,
-          caseRow.group_no,
+          caseRow.entry_date,
           data.applicationItems.find((appItem) => appItem.id === (item.corrected_application_item_id ?? caseRow.application_item_id))?.name,
+          item.corrected_amount ?? item.original_amount ?? caseRow.amount,
+          paymentDate,
           caseRow.handler_name,
-          caseRow.payment_date,
-          caseRow.note,
-          item.correction_reason
+          formatCorrectionRecord(item, caseRow, data)
         ]);
         const transactionFields = row.balanceTransactions.flatMap((txn) => [
           txn.txn_type,
@@ -158,15 +193,16 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
   }
 
   const detailColumns = [
-    { key: 'case_no', title: '案件編號', render: (row: { caseRow: ArcCase }) => row.caseRow.case_no },
-    { key: 'employer', title: '雇主', render: (row: { caseRow: ArcCase }) => row.caseRow.employer_name },
-    { key: 'worker', title: '工人', render: (row: { caseRow: ArcCase }) => row.caseRow.worker_name },
-    { key: 'group', title: '團號', render: (row: { caseRow: ArcCase }) => row.caseRow.group_no ?? '' },
-    { key: 'item', title: '申請項目', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => data.applicationItems.find((item) => item.id === (row.item.corrected_application_item_id ?? row.caseRow.application_item_id))?.name ?? '' },
-    { key: 'amount', title: '金額', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatMoney(row.item.corrected_amount ?? row.item.original_amount ?? row.caseRow.amount) },
-    { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
-    { key: 'payment_date', title: '收費日期', render: (row: { caseRow: ArcCase }) => formatDate(row.caseRow.payment_date) },
-    { key: 'note', title: '備註', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => row.item.correction_reason ?? row.caseRow.note ?? '' }
+    { key: 'case_no', title: '案件編號', render: (row: FinanceBatchDetailRow) => row.caseRow.case_no },
+    { key: 'group', title: '團號', render: (row: FinanceBatchDetailRow) => row.caseRow.group_no ?? '' },
+    { key: 'employer', title: '雇主', render: (row: FinanceBatchDetailRow) => row.caseRow.employer_name },
+    { key: 'worker', title: '工人', render: (row: FinanceBatchDetailRow) => row.caseRow.worker_name },
+    { key: 'entry_date', title: '入境日', render: (row: FinanceBatchDetailRow) => formatDate(row.caseRow.entry_date) },
+    { key: 'item', title: '申請項目', render: (row: FinanceBatchDetailRow) => data.applicationItems.find((item) => item.id === (row.item.corrected_application_item_id ?? row.caseRow.application_item_id))?.name ?? '' },
+    { key: 'amount', title: '項目金額', render: (row: FinanceBatchDetailRow) => formatMoney(row.item.corrected_amount ?? row.item.original_amount ?? row.caseRow.amount) },
+    { key: 'payment_date', title: '繳費日期', render: (row: FinanceBatchDetailRow) => formatDate(row.paymentDate) },
+    { key: 'handler', title: '承辦', render: (row: FinanceBatchDetailRow) => row.caseRow.handler_name },
+    { key: 'correction', title: '修正紀錄', render: (row: FinanceBatchDetailRow) => formatCorrectionRecord(row.item, row.caseRow, data) }
   ];
 
 

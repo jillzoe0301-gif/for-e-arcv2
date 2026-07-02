@@ -21,6 +21,6 @@ export const caseStatusLabels: Record<CaseStatus, string> = {
 export const batchStatusLabels: Record<BatchStatus, string> = {
   pending: '待對帳',
   confirmed: '對帳完成',
-  amount_error: '項目金額錯誤',
+  amount_error: '金額已修正 / 待重新確認',
   cancelled: '取消批次'
 };

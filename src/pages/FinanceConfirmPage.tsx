@@ -26,6 +26,38 @@ type AccountDraft = {
   reason: string;
 };
 
+function isNoBalanceBrokerName(name: string | undefined) {
+  return Boolean(name && (name.includes('灃禾') || name.includes('乾坤')));
+}
+
+function formatCorrectionRecord(item: PaymentBatchItem, caseRow: ArcCase, data: ArcData) {
+  const hasCorrection = Boolean(item.corrected_application_item_id || item.corrected_amount != null || item.correction_reason);
+  if (!hasCorrection) return '';
+
+  const originalApplicationItemId = item.original_application_item_id ?? caseRow.application_item_id;
+  const correctedApplicationItemId = item.corrected_application_item_id ?? originalApplicationItemId;
+  const originalApplicationItemName = data.applicationItems.find((appItem) => appItem.id === originalApplicationItemId)?.name ?? '';
+  const correctedApplicationItemName = data.applicationItems.find((appItem) => appItem.id === correctedApplicationItemId)?.name ?? originalApplicationItemName;
+  const originalAmount = Number(item.original_amount ?? caseRow.amount ?? 0);
+  const correctedAmount = Number(item.corrected_amount ?? originalAmount);
+  const records: string[] = [];
+
+  if (originalApplicationItemId !== correctedApplicationItemId) {
+    records.push(`項目：${originalApplicationItemName} → ${correctedApplicationItemName}`);
+  }
+  if (originalAmount !== correctedAmount) {
+    records.push(`金額：${formatMoney(originalAmount)} → ${formatMoney(correctedAmount)}`);
+  }
+  if (item.correction_reason) {
+    records.push(`原因：${item.correction_reason}`);
+  }
+  if (item.corrected_at) {
+    records.push(`修正時間：${formatDate(item.corrected_at)}`);
+  }
+
+  return records.join('；');
+}
+
 export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
@@ -55,11 +87,14 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
       account,
       brokerName: data.brokers.find((broker) => broker.id === account.broker_id)?.name ?? ''
     }))
+    .filter((row) => !isNoBalanceBrokerName(row.brokerName))
     .sort((a, b) => `${a.brokerName}${a.account.account_name}`.localeCompare(`${b.brokerName}${b.account.account_name}`, 'zh-Hant')),
   [data.accounts, data.brokers]);
 
+  const selectedBatchTotal = details.reduce((sum, entry) => sum + Number(entry.item.corrected_amount ?? entry.caseRow.amount ?? entry.item.original_amount ?? 0), 0);
   const mayChangeDate = selectedBatch ? canModifyFinanceBatchDate(profile?.role) && selectedBatch.status !== 'confirmed' : false;
   const mayAdjustBalance = canAdjustFinanceConfirmBalance(profile?.role);
+  const mayCompleteBatch = profile?.role === 'admin' || profile?.role === 'finance';
 
   function setAccountDraft(accountId: string, patch: Partial<AccountDraft>) {
     setAccountDrafts((current) => ({
@@ -81,6 +116,10 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   }
 
   async function completeBatch(batch: PaymentBatch) {
+    if (!mayCompleteBatch) {
+      pushToast({ type: 'warning', title: '行政不可執行對帳完成。' });
+      return;
+    }
     try {
       await confirmPaymentBatch(batch, profile);
       pushToast({ type: 'success', title: '對帳完成', message: '此批次已轉入財務查詢。' });
@@ -257,26 +296,29 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
 
   const detailColumns = [
     { key: 'case_no', title: '案件編號', render: (row: { caseRow: ArcCase }) => row.caseRow.case_no },
+    { key: 'group', title: '團號', render: (row: { caseRow: ArcCase }) => row.caseRow.group_no ?? '' },
     { key: 'employer', title: '雇主', render: (row: { caseRow: ArcCase }) => row.caseRow.employer_name },
     { key: 'worker', title: '工人', render: (row: { caseRow: ArcCase }) => row.caseRow.worker_name },
-    { key: 'group', title: '團號', render: (row: { caseRow: ArcCase }) => row.caseRow.group_no ?? '' },
+    { key: 'entry_date', title: '入境日', render: (row: { caseRow: ArcCase }) => formatDate(row.caseRow.entry_date) },
     { key: 'item', title: '申請項目', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => data.applicationItems.find((item) => item.id === (row.item.corrected_application_item_id ?? row.caseRow.application_item_id))?.name ?? '' },
-    { key: 'amount', title: '項目金額', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatMoney(row.item.corrected_amount ?? row.caseRow.amount) },
+    { key: 'amount', title: '項目金額', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatMoney(row.item.corrected_amount ?? row.item.original_amount ?? row.caseRow.amount) },
+    { key: 'payment_date', title: '繳費日期', render: () => formatDate(selectedBatch?.payment_date) },
     { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
-    { key: 'payment_date', title: '收費日期', render: () => formatDate(selectedBatch?.payment_date) },
-    { key: 'correction', title: '修正紀錄', render: (row: { item: PaymentBatchItem }) => row.item.correction_reason ?? '' },
+    { key: 'correction', title: '修正紀錄', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => formatCorrectionRecord(row.item, row.caseRow, data) },
     { key: 'action', title: '操作', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => <button className="danger-button mini" onClick={() => openCorrection(row)}>項目金額錯誤</button> }
   ];
 
   return (
     <div className="page-content finance-page">
-      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可使用。可一次查看與調整所有啟用帳戶餘額，並在對帳完成前修正批次繳費日期。" />
+      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可調整帳戶餘額與完成對帳；行政可進行項目金額錯誤單筆修正。" />
+
+      <div className="receipt-path-note">收據存放路徑：Z:\行政\$移民署繳費</div>
 
       <section className="card full-width-card finance-account-balance-card">
         <div className="section-title-row">
           <div>
             <h2>所有帳戶餘額</h2>
-            <p className="subtle-text">一次顯示所有啟用中的仲介帳戶。餘額修改只調整該帳戶，不新增批次、不影響案件金額、不重複扣款。</p>
+            <p className="subtle-text">一次顯示需控管餘額的啟用帳戶。灃禾、乾坤不列入餘額顯示與餘額修改。餘額修改只調整該帳戶，不新增批次、不影響案件金額、不重複扣款。</p>
           </div>
           {!mayAdjustBalance ? <span className="subtle-text">您沒有修改帳戶餘額的權限。</span> : null}
         </div>
@@ -299,10 +341,13 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
             <div><span>繳款人</span><strong>{selectedBatch.payer_name}</strong></div>
             <div><span>仲介</span><strong>{selectedBroker?.name ?? ''}</strong></div>
             <div><span>扣款帳戶</span><strong>{selectedAccount?.account_name ?? '未設定'}</strong></div>
+            <div><span>該筆總金額</span><strong>{formatMoney(selectedBatchTotal)} 元</strong></div>
           </div>
 
+          <div className="receipt-path-note inline">收據存放路徑：Z:\行政\$移民署繳費</div>
+
           <div className="toolbar-row">
-            <button className="primary-button" onClick={() => completeBatch(selectedBatch)}>對帳完成並轉入財務查詢</button>
+            {mayCompleteBatch ? <button className="primary-button" onClick={() => completeBatch(selectedBatch)}>對帳完成並轉入財務查詢</button> : null}
             <span className="subtle-text">項目金額錯誤請在單筆明細右側修正。帳戶餘額請於上方「所有帳戶餘額」區塊調整。</span>
           </div>
           <DataTable columns={detailColumns} rows={details} rowKey={(row) => row.item.id} emptyText="此批次沒有明細" />
