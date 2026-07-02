@@ -75,3 +75,16 @@ dist
 *.zip
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# ARC cleanup ignored files
+.env
+.env.local
+node_modules
+dist
+*.zip
+*.bak
+*.tmp
+*.old
+*.orig
+*.tsbuildinfo
+arc-cleanup-v32-*.log
