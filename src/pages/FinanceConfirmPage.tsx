@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   adjustFinanceConfirmAccountBalance,
   confirmPaymentBatch,
@@ -11,10 +11,20 @@ import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { BatchStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
-import type { ArcCase, ArcData, PaymentBatch, PaymentBatchItem, Profile } from '../types';
+import type { ArcCase, ArcData, BankAccount, PaymentBatch, PaymentBatchItem, Profile } from '../types';
 import { formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
 import { canAdjustFinanceConfirmBalance, canDeleteData, canModifyFinanceBatchDate } from '../utils/permissions';
+
+type AccountBalanceRow = {
+  account: BankAccount;
+  brokerName: string;
+};
+
+type AccountDraft = {
+  nextBalance: string;
+  reason: string;
+};
 
 export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -24,13 +34,13 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const [correctedAmount, setCorrectedAmount] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const [dateEditor, setDateEditor] = useState<{ batch: PaymentBatch; value: string } | null>(null);
-  const [nextBalance, setNextBalance] = useState('');
-  const [balanceReason, setBalanceReason] = useState('');
+  const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
 
   const batches = useMemo(() => data.batches
     .filter((item) => item.deleted_at == null)
     .filter((item) => item.status === 'pending' || item.status === 'amount_error')
     .sort((a, b) => `${b.payment_date}${b.batch_no}`.localeCompare(`${a.payment_date}${a.batch_no}`)), [data.batches]);
+
   const selectedBatch = batches.find((item) => item.id === selectedBatchId) ?? batches[0];
   const selectedBroker = selectedBatch ? data.brokers.find((item) => item.id === selectedBatch.broker_id) : undefined;
   const selectedAccount = selectedBatch ? data.accounts.find((item) => item.id === selectedBatch.account_id) : undefined;
@@ -39,20 +49,36 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) }))
     .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
 
-  useEffect(() => {
-    if (!selectedAccount) {
-      setNextBalance('');
-      setBalanceReason('');
-      return;
-    }
-    setNextBalance(String(selectedAccount.current_balance ?? 0));
-    setBalanceReason('');
-  }, [selectedBatch?.id, selectedAccount?.id, selectedAccount?.current_balance]);
+  const accountRows = useMemo<AccountBalanceRow[]>(() => data.accounts
+    .filter((account) => account.is_enabled)
+    .map((account) => ({
+      account,
+      brokerName: data.brokers.find((broker) => broker.id === account.broker_id)?.name ?? ''
+    }))
+    .sort((a, b) => `${a.brokerName}${a.account.account_name}`.localeCompare(`${b.brokerName}${b.account.account_name}`, 'zh-Hant')),
+  [data.accounts, data.brokers]);
 
-  const parsedNextBalance = parseMoney(nextBalance);
-  const balanceDelta = selectedAccount && parsedNextBalance !== null ? parsedNextBalance - Number(selectedAccount.current_balance ?? 0) : null;
   const mayChangeDate = selectedBatch ? canModifyFinanceBatchDate(profile?.role) && selectedBatch.status !== 'confirmed' : false;
-  const mayAdjustBalance = selectedBatch ? canAdjustFinanceConfirmBalance(profile?.role) : false;
+  const mayAdjustBalance = canAdjustFinanceConfirmBalance(profile?.role);
+
+  function setAccountDraft(accountId: string, patch: Partial<AccountDraft>) {
+    setAccountDrafts((current) => ({
+      ...current,
+      [accountId]: {
+        nextBalance: current[accountId]?.nextBalance ?? '',
+        reason: current[accountId]?.reason ?? '',
+        ...patch
+      }
+    }));
+  }
+
+  function clearAccountDraft(accountId: string) {
+    setAccountDrafts((current) => {
+      const next = { ...current };
+      delete next[accountId];
+      return next;
+    });
+  }
 
   async function completeBatch(batch: PaymentBatch) {
     try {
@@ -109,24 +135,34 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     }
   }
 
-  async function submitBalanceAdjustment() {
-    if (!selectedBatch || !selectedAccount) return;
-    if (!canAdjustFinanceConfirmBalance(profile?.role)) {
+  async function submitAccountBalance(account: BankAccount) {
+    if (!mayAdjustBalance) {
       pushToast({ type: 'warning', title: '您沒有修改帳戶餘額的權限。' });
       return;
     }
-    const money = parseMoney(nextBalance);
-    if (money === null) return pushToast({ type: 'warning', title: '修改後餘額必須為有效數字。' });
-    if (!balanceReason.trim()) return pushToast({ type: 'warning', title: '請輸入餘額調整原因。' });
+    const draft = accountDrafts[account.id];
+    if (!draft || !draft.nextBalance.trim()) {
+      pushToast({ type: 'warning', title: '修改後餘額格式不正確，請重新輸入。' });
+      return;
+    }
+    const nextBalance = parseMoney(draft.nextBalance);
+    if (nextBalance === null) {
+      pushToast({ type: 'warning', title: '修改後餘額格式不正確，請重新輸入。' });
+      return;
+    }
+    if (!draft.reason.trim()) {
+      pushToast({ type: 'warning', title: '請輸入餘額調整原因。' });
+      return;
+    }
     try {
       await adjustFinanceConfirmAccountBalance({
-        batch: selectedBatch,
-        account: selectedAccount,
-        nextBalance: money,
-        reason: balanceReason.trim(),
+        account,
+        nextBalance,
+        reason: draft.reason.trim(),
         actor: profile
       });
       pushToast({ type: 'success', title: '帳戶餘額已更新。' });
+      clearAccountDraft(account.id);
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '餘額修改失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -156,6 +192,58 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     }
   }
 
+  const accountBalanceColumns = [
+    { key: 'broker', title: '仲介', render: (row: AccountBalanceRow) => row.brokerName },
+    { key: 'account', title: '帳戶名稱', render: (row: AccountBalanceRow) => row.account.account_name },
+    { key: 'current', title: '目前餘額', render: (row: AccountBalanceRow) => formatMoney(row.account.current_balance) },
+    {
+      key: 'next',
+      title: '修改後餘額',
+      render: (row: AccountBalanceRow) => (
+        <input
+          className="table-input money-input"
+          value={accountDrafts[row.account.id]?.nextBalance ?? ''}
+          onChange={(e) => setAccountDraft(row.account.id, { nextBalance: e.target.value })}
+          disabled={!mayAdjustBalance}
+          placeholder="輸入新餘額"
+        />
+      )
+    },
+    {
+      key: 'delta',
+      title: '差額',
+      render: (row: AccountBalanceRow) => {
+        const raw = accountDrafts[row.account.id]?.nextBalance ?? '';
+        if (!raw.trim()) return '';
+        const nextBalance = parseMoney(raw);
+        if (nextBalance === null) return <span className="danger-text">格式錯誤</span>;
+        const delta = nextBalance - Number(row.account.current_balance ?? 0);
+        if (delta === 0) return '無異動';
+        return `${delta > 0 ? '增加 ' : '減少 '}${formatMoney(Math.abs(delta))}`;
+      }
+    },
+    {
+      key: 'reason',
+      title: '調整原因',
+      render: (row: AccountBalanceRow) => (
+        <input
+          className="table-input reason-input"
+          value={accountDrafts[row.account.id]?.reason ?? ''}
+          onChange={(e) => setAccountDraft(row.account.id, { reason: e.target.value })}
+          disabled={!mayAdjustBalance}
+          placeholder="必填"
+        />
+      )
+    },
+    {
+      key: 'action',
+      title: '操作',
+      render: (row: AccountBalanceRow) => mayAdjustBalance
+        ? <button type="button" className="primary-button mini" onClick={() => submitAccountBalance(row.account)}>儲存</button>
+        : <span className="subtle-text">無權限</span>
+    }
+  ];
+
   const batchColumns = [
     { key: 'batch_no', title: '批次編號', render: (row: PaymentBatch) => <button className="link-button" onClick={() => setSelectedBatchId(row.id)}>{row.batch_no}</button> },
     { key: 'date', title: '繳費日期', render: (row: PaymentBatch) => formatDate(row.payment_date) },
@@ -182,11 +270,24 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
 
   return (
     <div className="page-content finance-page">
-      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可使用。對帳完成前可修正批次繳費日期與本批次扣款帳戶餘額。" />
+      <PageHeader title="財務對帳確認" description="會計 / 財務與管理員可使用。可一次查看與調整所有啟用帳戶餘額，並在對帳完成前修正批次繳費日期。" />
+
+      <section className="card full-width-card finance-account-balance-card">
+        <div className="section-title-row">
+          <div>
+            <h2>所有帳戶餘額</h2>
+            <p className="subtle-text">一次顯示所有啟用中的仲介帳戶。餘額修改只調整該帳戶，不新增批次、不影響案件金額、不重複扣款。</p>
+          </div>
+          {!mayAdjustBalance ? <span className="subtle-text">您沒有修改帳戶餘額的權限。</span> : null}
+        </div>
+        <DataTable columns={accountBalanceColumns} rows={accountRows} rowKey={(row) => row.account.id} emptyText="目前沒有啟用中的扣款帳戶" />
+      </section>
+
       <section className="card full-width-card">
         <h2>待對帳繳費批次</h2>
         <DataTable columns={batchColumns} rows={batches} rowKey={(row) => row.id} emptyText="目前沒有待對帳繳費批次" />
       </section>
+
       {selectedBatch ? (
         <section className="card full-width-card finance-confirm-detail-card">
           <div className="finance-detail-head finance-detail-head-rich">
@@ -197,33 +298,17 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
             </div>
             <div><span>繳款人</span><strong>{selectedBatch.payer_name}</strong></div>
             <div><span>仲介</span><strong>{selectedBroker?.name ?? ''}</strong></div>
-            <div><span>扣款帳戶</span><strong>{selectedAccount ? `${selectedAccount.bank_name}｜${selectedAccount.account_name}` : '未設定'}</strong></div>
-            <div><span>帳戶名稱</span><strong>{selectedAccount?.account_name ?? ''}</strong></div>
-            <div><span>帳號後五碼</span><strong>{selectedAccount?.account_last5 ?? selectedAccount?.account_no?.slice(-5) ?? ''}</strong></div>
-            <div><span>目前帳戶餘額</span><strong>{selectedAccount ? formatMoney(selectedAccount.current_balance) : ''}</strong></div>
-          </div>
-
-          <div className="finance-balance-adjust-panel">
-            <div>
-              <h3>帳戶餘額修改</h3>
-              <p className="subtle-text">只調整本批次所選扣款帳戶，不影響案件金額、不新增批次、不重複扣款。</p>
-            </div>
-            <div className="finance-balance-adjust-grid">
-              <label><span>目前餘額</span><input value={selectedAccount ? formatMoney(selectedAccount.current_balance) : ''} disabled /></label>
-              <label><span>修改後餘額</span><input value={nextBalance} onChange={(e) => setNextBalance(e.target.value)} disabled={!mayAdjustBalance || !selectedAccount} /></label>
-              <label><span>差額</span><input value={balanceDelta === null ? '' : `${balanceDelta >= 0 ? '增加 ' : '減少 '}${formatMoney(Math.abs(balanceDelta))}`} disabled /></label>
-              <label className="wide-field"><span>餘額調整原因</span><input value={balanceReason} onChange={(e) => setBalanceReason(e.target.value)} disabled={!mayAdjustBalance || !selectedAccount} placeholder="必填，例如銀行餘額校正 / 入帳差異調整" /></label>
-              {mayAdjustBalance ? <button type="button" className="primary-button" onClick={submitBalanceAdjustment} disabled={!selectedAccount}>儲存餘額修改</button> : <span className="subtle-text">您沒有修改帳戶餘額的權限。</span>}
-            </div>
+            <div><span>扣款帳戶</span><strong>{selectedAccount?.account_name ?? '未設定'}</strong></div>
           </div>
 
           <div className="toolbar-row">
             <button className="primary-button" onClick={() => completeBatch(selectedBatch)}>對帳完成並轉入財務查詢</button>
-            <span className="subtle-text">項目金額錯誤請在單筆明細右側修正。</span>
+            <span className="subtle-text">項目金額錯誤請在單筆明細右側修正。帳戶餘額請於上方「所有帳戶餘額」區塊調整。</span>
           </div>
           <DataTable columns={detailColumns} rows={details} rowKey={(row) => row.item.id} emptyText="此批次沒有明細" />
         </section>
       ) : null}
+
       {dateEditor ? (
         <Modal title="修改批次繳費日期" onClose={() => setDateEditor(null)}>
           <div className="form-grid one-col">
@@ -234,6 +319,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
           <div className="form-actions"><button className="primary-button" onClick={submitBatchDate}>儲存日期</button></div>
         </Modal>
       ) : null}
+
       {correction ? (
         <Modal title="項目金額錯誤" onClose={() => setCorrection(null)}>
           <div className="form-grid one-col">

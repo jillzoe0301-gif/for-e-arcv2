@@ -494,7 +494,7 @@ export async function updatePaymentBatchDate(params: {
 }
 
 export async function adjustFinanceConfirmAccountBalance(params: {
-  batch: PaymentBatch;
+  batch?: PaymentBatch | null;
   account: BankAccount;
   nextBalance: number;
   reason: string;
@@ -516,37 +516,36 @@ export async function adjustFinanceConfirmAccountBalance(params: {
     amount: delta,
     balance_before: before,
     balance_after: nextBalance,
-    ref_table: 'payment_batches',
-    ref_id: batch.id,
+    ref_table: batch ? 'payment_batches' : 'bank_accounts',
+    ref_id: batch?.id ?? account.id,
     reason: cleanReason,
     created_by: actor?.id
   });
   if (txnError) throw txnError;
+  const common = {
+    異動類型: '手動調整餘額',
+    繳費批次編號: batch?.batch_no ?? null,
+    帳戶名稱: account.account_name,
+    修改人: actor?.display_name,
+    異動來源: '財務對帳確認'
+  };
   await addAudit({
-    action_type: '手動修改餘額',
+    action_type: '手動調整餘額',
     actor_id: actor?.id,
     actor_name: actor?.display_name,
     page_name: '財務對帳確認',
     record_table: 'bank_accounts',
     record_id: account.id,
     old_data: {
-      異動類型: '手動修改餘額',
-      繳費批次編號: batch.batch_no,
-      帳戶名稱: account.account_name,
-      帳號後五碼: account.account_last5 ?? account.account_no.slice(-5),
+      ...common,
       修改前餘額: before
     },
     new_data: {
-      異動類型: '手動修改餘額',
-      繳費批次編號: batch.batch_no,
-      帳戶名稱: account.account_name,
-      帳號後五碼: account.account_last5 ?? account.account_no.slice(-5),
+      ...common,
       修改後餘額: nextBalance,
       差額: delta,
       調整原因: cleanReason,
-      修改人: actor?.display_name,
-      修改時間: new Date().toISOString(),
-      異動來源: '財務對帳確認'
+      修改時間: new Date().toISOString()
     },
     reason: cleanReason
   });

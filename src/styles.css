@@ -867,3 +867,39 @@ input[type="checkbox"] {
   .finance-balance-adjust-grid { grid-template-columns: 1fr; }
   .finance-balance-adjust-grid .wide-field { grid-column: auto; }
 }
+
+/* V36 財務對帳確認：所有帳戶餘額表格 */
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.finance-account-balance-card .table-wrap,
+.finance-transaction-query-card .table-wrap {
+  width: 100%;
+  max-width: none;
+}
+.table-input {
+  width: 100%;
+  min-width: 120px;
+  height: 32px;
+  border: 1px solid #d9e0cf;
+  border-radius: 10px;
+  padding: 6px 9px;
+  font: inherit;
+  background: #fff;
+}
+.table-input:disabled {
+  background: #f2f4ec;
+  color: #7a806f;
+}
+.money-input { max-width: 150px; }
+.reason-input { min-width: 180px; }
+.danger-text { color: #DA4848; font-weight: 800; }
+
+@media (max-width: 760px) {
+  .section-title-row { display: grid; }
+  .money-input, .reason-input { max-width: none; min-width: 120px; }
+}

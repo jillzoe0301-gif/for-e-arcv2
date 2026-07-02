@@ -21,6 +21,13 @@ type FinanceBatchRow = {
   balanceTransactions: AccountTransaction[];
 };
 
+type BalanceTransactionRow = {
+  txn: AccountTransaction;
+  brokerName: string;
+  accountName: string;
+  actorName: string;
+};
+
 export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
   const [keyword, setKeyword] = useState('');
@@ -96,6 +103,36 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
       });
   }, [allConfirmedBatches, data.accountTransactions, data.accounts, data.applicationItems, data.batchItems, data.brokers, data.cases, data.profiles, keyword, month]);
 
+
+  const balanceTransactionRows = useMemo<BalanceTransactionRow[]>(() => {
+    return data.accountTransactions
+      .filter((txn) => txn.txn_type === 'finance_confirm_balance_adjustment' || txn.txn_type === 'balance_adjustment')
+      .filter((txn) => !month || monthKey(txn.created_at) === month)
+      .map((txn) => {
+        const account = data.accounts.find((item) => item.id === txn.account_id);
+        const broker = account ? data.brokers.find((item) => item.id === account.broker_id) : undefined;
+        const actor = data.profiles.find((item) => item.id === txn.created_by);
+        return {
+          txn,
+          brokerName: broker?.name ?? '',
+          accountName: account?.account_name ?? '',
+          actorName: actor?.display_name ?? txn.created_by ?? ''
+        };
+      })
+      .filter((row) => rowMatchesKeyword(keyword, [
+        row.brokerName,
+        row.accountName,
+        row.txn.txn_type,
+        row.txn.reason,
+        row.txn.balance_before,
+        row.txn.balance_after,
+        row.txn.amount,
+        row.actorName,
+        row.txn.created_at
+      ]))
+      .sort((a, b) => String(b.txn.created_at).localeCompare(String(a.txn.created_at)));
+  }, [data.accountTransactions, data.accounts, data.brokers, data.profiles, keyword, month]);
+
   function toggleDetails(batchId: string) {
     setExpandedBatchIds((current) => {
       const next = new Set(current);
@@ -130,6 +167,18 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
     { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
     { key: 'payment_date', title: '收費日期', render: (row: { caseRow: ArcCase }) => formatDate(row.caseRow.payment_date) },
     { key: 'note', title: '備註', render: (row: { item: PaymentBatchItem; caseRow: ArcCase }) => row.item.correction_reason ?? row.caseRow.note ?? '' }
+  ];
+
+
+  const transactionColumns = [
+    { key: 'broker', title: '仲介', render: (row: BalanceTransactionRow) => row.brokerName },
+    { key: 'account', title: '帳戶名稱', render: (row: BalanceTransactionRow) => row.accountName },
+    { key: 'before', title: '修改前餘額', render: (row: BalanceTransactionRow) => formatMoney(row.txn.balance_before) },
+    { key: 'after', title: '修改後餘額', render: (row: BalanceTransactionRow) => formatMoney(row.txn.balance_after) },
+    { key: 'delta', title: '差額', render: (row: BalanceTransactionRow) => `${row.txn.amount >= 0 ? '增加 ' : '減少 '}${formatMoney(Math.abs(row.txn.amount))}` },
+    { key: 'reason', title: '調整原因', render: (row: BalanceTransactionRow) => row.txn.reason ?? '' },
+    { key: 'actor', title: '修改人', render: (row: BalanceTransactionRow) => row.actorName },
+    { key: 'time', title: '修改時間', render: (row: BalanceTransactionRow) => displayDateTime(row.txn.created_at) }
   ];
 
   return (
@@ -196,6 +245,12 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
             );
           }) : <div className="empty-state">查無已完成對帳的財務批次</div>}
         </div>
+      </section>
+
+      <section className="card full-width-card no-compress finance-transaction-query-card">
+        <h2>帳戶餘額異動紀錄</h2>
+        <p className="subtle-text">顯示財務對帳確認與帳戶設定產生的餘額異動紀錄；此頁只供查看，不提供直接修改餘額。</p>
+        <DataTable columns={transactionColumns} rows={balanceTransactionRows} rowKey={(row) => row.txn.id} emptyText="目前沒有符合條件的餘額異動紀錄" />
       </section>
     </div>
   );
