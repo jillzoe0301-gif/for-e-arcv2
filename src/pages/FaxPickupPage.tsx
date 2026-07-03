@@ -86,11 +86,15 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
 
   function sameDayReceiptOrders(expectedPickupDate: string, excludeCaseId?: string) {
     const orders = data.faxPickupItems
-      .filter((item) => item.status === 'pending' && item.expected_pickup_date === expectedPickupDate && item.case_id !== excludeCaseId)
+      .filter((item) => item.status === 'pending' && !item.deleted_at && item.expected_pickup_date === expectedPickupDate && item.case_id !== excludeCaseId)
       .map((item) => Number(item.receipt_order || 0))
       .filter((order) => order > 0);
     for (const [caseId, draft] of Object.entries(drafts)) {
       if (caseId === excludeCaseId) continue;
+      const draftCase = data.cases.find((item) => item.id === caseId);
+      if (!draftCase) continue;
+      if (!['pending_pickup', 'not_received'].includes(draftCase.status)) continue;
+      if (pendingPlanCaseIds.has(caseId)) continue;
       if ((draft.expected_pickup_date || nextWeekThursday()) !== expectedPickupDate) continue;
       const order = Number(draft.receipt_order || 0);
       if (Number.isInteger(order) && order > 0) orders.push(order);
@@ -294,8 +298,22 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     if (!window.confirm('確定要將此案件移出預計領件區嗎？移除後會回到移民署傳真領件。')) return;
     try {
       await removeFaxPickupPlan({ plan: row.plan, caseRow: row.caseRow, actor: profile });
-      pushToast({ type: 'success', title: '已移出預計領件區', message: '案件已回到移民署傳真領件。' });
+      pushToast({ type: 'success', title: '已移出預計領件區', message: '案件已回到移民署傳真領件，原收據順序已釋放。' });
       setSelectedPlanIds((current) => current.filter((id) => id !== row.plan.id));
+      setDrafts((current) => ({
+        ...current,
+        [row.caseRow.id]: {
+          payment_date: row.caseRow.payment_date ?? row.caseRow.application_date ?? todayTaipei(),
+          receipt_no: row.plan.receipt_no ?? row.caseRow.receipt_no ?? '',
+          foreign_no_last5: row.plan.foreign_no_last5 ?? row.caseRow.foreign_no_last5 ?? '',
+          receipt_order: '',
+          fax_date: row.plan.fax_date ?? row.caseRow.fax_date ?? todayTaipei(),
+          expected_pickup_date: nextWeekThursday(),
+          old_card_checked: row.plan.old_card_checked ?? isOldCardChecked(row.caseRow),
+          handler_last4: row.plan.handler_last4 ?? row.caseRow.handler_last4 ?? ''
+        }
+      }));
+      setPlanDate(nextWeekThursday());
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '移除失敗', message: err instanceof Error ? err.message : '請稍後再試' });

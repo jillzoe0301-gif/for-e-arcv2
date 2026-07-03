@@ -1,52 +1,48 @@
-# ARC V13.40 更新說明
+# ARC V13.41 更新說明
 
-本版優先修正「系統設定」內新增、修改、停用、刪除與帳號密碼重設失敗問題。
+## 本版修正
 
-## 本版修正重點
+- 預計領件區移除案件後，案件回到移民署傳真領件待處理區。
+- 預計領件區移除後，原本占用的同日收據順序會釋放。
+- 收據順序防重只檢查目前有效的 pending 預計領件與有效待處理草稿。
+- 防重判斷會排除同一案件自己的舊值。
+- 領件日預設修正為「下一個週四」：若今天是週四，才抓下一週週四；週一、二、三會抓本週四。
+- 從預計領件區移除後，收據順序會清空，收件編號、外字五碼、舊卡、經手人後四碼會保留。
+- 首頁版本更新為 ARC V13.41。
 
-- 帳號設定：密碼重設、停用、啟用、刪除修正。
-- 帳號停用 / 刪除後不可登入。
-- 不可停用 / 刪除目前登入中的帳號。
-- 不可停用 / 刪除唯一啟用中的管理員帳號。
-- 帳號刪除改為軟刪除，保留歷史資料。
-- 人員選項設定刪除修正。
-- 送件項目設定刪除修正。
-- 手續費、仲介公司、帳戶、傳真/領件、提醒事項、列印設定、移民署服務站、專勤隊聯絡資訊等系統設定刪除修正。
-- 系統設定項目新增「停用 / 啟用」操作。
-- 刪除與停用統一寫入操作紀錄。
-- 密碼重設不會將密碼明文寫入操作紀錄。
-- 登入時會檢查 profiles.is_active / deleted_at，停用或刪除帳號會被阻擋。
-- 首頁版本更新為 ARC V13.40。
+## 需要執行 Supabase SQL
 
-## Supabase SQL
+請先到 Supabase SQL Editor 執行：
 
-本版需要先在 Supabase SQL Editor 執行：
-
-```txt
-supabase/migrations/202607020009_arc_v13_v40_settings_admin_ops.sql
+```sql
+supabase/migrations/202607030010_arc_v13_v41_pickup_receipt_release.sql
 ```
 
-## Edge Function
+此 SQL 會將舊版收據順序唯一索引改為只限制有效待領件資料，避免已移除 / 已作廢資料繼續占用序號。
 
-帳號新增與密碼重設需要部署 Supabase Edge Function：
+## 部署指令
 
 ```bash
-supabase functions deploy arc-admin-users --no-verify-jwt
-```
+ls -la arc-v13-formal-v41-update.zip
 
-Edge Function Secret 需設定：
+printf "\n.env\n.env.local\nnode_modules\ndist\n*.zip\ntsconfig.tsbuildinfo\n*.tsbuildinfo\n" >> .gitignore
 
-```txt
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-```
+rm -rf src public supabase scripts dist node_modules
+rm -f package-lock.json package.json index.html tsconfig.json vite.config.ts README.md BUILD_CHECK.txt
 
-## 部署
+unzip -o arc-v13-formal-v41-update.zip
 
-```bash
+test -f package.json && echo "package.json OK"
+test -f src/pages/FaxPickupPage.tsx && echo "傳真領件 OK"
+test -f src/api/repository.ts && echo "repository OK"
+test -f src/utils/date.ts && echo "日期工具 OK"
+test -f supabase/migrations/202607030010_arc_v13_v41_pickup_receipt_release.sql && echo "SQL OK"
+
 npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
 npm run build
+
+git status
 git add -A
-git commit -m "update ARC V13.40 settings operations"
+git commit -m "update ARC V13.41 pickup receipt release"
 git push origin main
 ```

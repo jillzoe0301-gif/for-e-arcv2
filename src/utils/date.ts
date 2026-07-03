@@ -99,8 +99,9 @@ export function nextWeekThursday(base = todayTaipei()): string {
   const [y, m, d] = base.split('-').map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
   const day = date.getUTCDay();
-  const daysUntilThisWeekThursday = (4 - day + 7) % 7;
-  const days = daysUntilThisWeekThursday + 7;
+  const daysUntilThursday = (4 - day + 7) % 7;
+  // 預設抓「下一個週四」：若今天是週四，仍抓下一週週四；其餘日期抓最近即將到來的週四。
+  const days = daysUntilThursday === 0 ? 7 : daysUntilThursday;
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }

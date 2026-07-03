@@ -1066,8 +1066,10 @@ export async function removeFaxPickupPlan(params: {
 }) {
   const { plan, caseRow, actor } = params;
   if (!actor || !['admin', 'staff'].includes(actor.role)) throw new Error('您沒有移除預計領件資料的權限。');
+  const defaultNextPickupDate = nextAvailablePickupDay(todayTaipei());
   const { error: planError } = await supabase.from('fax_pickup_items').update({
     status: 'cancelled',
+    deleted_at: new Date().toISOString(),
     updated_by: actor.id
   }).eq('id', plan.id);
   if (planError) throw planError;
@@ -1076,11 +1078,11 @@ export async function removeFaxPickupPlan(params: {
     pickup_status: null,
     receipt_no: plan.receipt_no,
     foreign_no_last5: plan.foreign_no_last5,
-    receipt_order: plan.receipt_order,
+    receipt_order: null,
     old_card_checked: plan.old_card_checked ?? caseRow.old_card_checked ?? false,
     handler_last4: plan.handler_last4 ?? caseRow.handler_last4 ?? null,
     fax_date: plan.fax_date,
-    expected_pickup_date: plan.expected_pickup_date,
+    expected_pickup_date: defaultNextPickupDate,
     updated_by: actor.id
   }).eq('id', caseRow.id);
   if (caseError) throw caseError;
@@ -1102,7 +1104,9 @@ export async function removeFaxPickupPlan(params: {
     },
     new_data: {
       狀態: '待加入預計領件',
-      流向: '回到移民署傳真領件'
+      流向: '回到移民署傳真領件',
+      收據順序: '已釋放',
+      預設領件日: defaultNextPickupDate
     },
     reason: '從預計領件區移除，案件回到移民署傳真領件待處理區。'
   });
