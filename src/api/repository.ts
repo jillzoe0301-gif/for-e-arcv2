@@ -104,7 +104,7 @@ export async function loadArcData(): Promise<ArcData> {
     selectOptional<AnnouncementItem>('announcement_items', 'created_at', false)
   ]);
   return {
-    profiles,
+    profiles: profiles.filter((item) => !item.deleted_at),
     people,
     brokers,
     accounts,
@@ -121,7 +121,7 @@ export async function loadArcData(): Promise<ArcData> {
     deletedRecords,
     serviceStations,
     taskForces,
-    settings: settings as never,
+    settings: (settings as { is_enabled?: boolean }[]).filter((item) => item.is_enabled !== false) as never,
     announcements: announcements as AnnouncementItem[]
   };
 }
@@ -1316,8 +1316,53 @@ export async function deletePickupRecord(record: PickupRecord, reason: string, a
   });
 }
 
+const settingsDeleteTables = new Set([
+  'profiles',
+  'person_options',
+  'application_items',
+  'fee_settings',
+  'broker_companies',
+  'bank_accounts',
+  'arc_settings',
+  'announcement_items',
+  'immigration_service_stations',
+  'task_force_contacts'
+]);
+
 export async function softDelete(table: string, row: { id: string; [key: string]: unknown }, actor: Profile | null, pageName: string, reason = '管理員刪除') {
   assertAdmin(actor);
+  if (settingsDeleteTables.has(table)) {
+    return rpcOrFallback('arc_admin_soft_delete_setting', {
+      p_table: table,
+      p_id: row.id,
+      p_page_name: pageName,
+      p_reason: reason
+    }, async () => {
+      const patch: Record<string, unknown> = { updated_by: actor?.id };
+      if ('is_enabled' in row) patch.is_enabled = false;
+      if ('deleted_at' in row || table !== 'arc_settings') patch.deleted_at = new Date().toISOString();
+      const { error } = await supabase.from(table).update(patch).eq('id', row.id);
+      if (error) throw error;
+      await supabase.from('deleted_records').insert({
+        table_name: table,
+        record_id: row.id,
+        data: row,
+        deleted_by: actor?.id,
+        deleted_by_name: actor?.display_name
+      });
+      await addAudit({
+        action_type: '系統設定刪除',
+        actor_id: actor?.id,
+        actor_name: actor?.display_name,
+        page_name: pageName,
+        record_table: table,
+        record_id: row.id,
+        old_data: row,
+        new_data: patch,
+        reason
+      });
+    });
+  }
   const patch = { deleted_at: new Date().toISOString(), updated_by: actor?.id };
   const { error } = await supabase.from(table).update(patch).eq('id', row.id);
   if (error) throw error;
@@ -1338,6 +1383,77 @@ export async function softDelete(table: string, row: { id: string; [key: string]
     old_data: row,
     new_data: patch,
     reason
+  });
+}
+
+export async function toggleSettingEnabled(table: string, row: { id: string; is_enabled?: boolean; [key: string]: unknown }, nextEnabled: boolean, actor: Profile | null, pageName: string) {
+  assertAdmin(actor);
+  return rpcOrFallback('arc_admin_toggle_setting_enabled', {
+    p_table: table,
+    p_id: row.id,
+    p_enabled: nextEnabled,
+    p_page_name: pageName,
+    p_reason: nextEnabled ? '管理員啟用設定項目' : '管理員停用設定項目'
+  }, async () => {
+    const patch = { is_enabled: nextEnabled, updated_by: actor?.id };
+    const { error } = await supabase.from(table).update(patch).eq('id', row.id);
+    if (error) throw error;
+    await addAudit({
+      action_type: nextEnabled ? '系統設定啟用' : '系統設定停用',
+      actor_id: actor?.id,
+      actor_name: actor?.display_name,
+      page_name: pageName,
+      record_table: table,
+      record_id: row.id,
+      old_data: row,
+      new_data: patch
+    });
+  });
+}
+
+export async function updateProfileStatus(userId: string, action: 'disable' | 'enable' | 'delete', actor: Profile | null) {
+  assertAdmin(actor);
+  return rpcOrFallback('arc_admin_update_profile_status', {
+    p_user_id: userId,
+    p_action: action,
+    p_page_name: '帳號設定'
+  }, async () => {
+    const { data: target, error: targetError } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+    if (targetError) throw targetError;
+    if (!target) throw new Error('找不到要操作的帳號。');
+    if (userId === actor?.id) throw new Error('不可操作目前登入中的帳號。');
+    if (target.role === 'admin' && ['disable', 'delete'].includes(action)) {
+      const { data: admins, error: adminsError } = await supabase.from('profiles').select('id').eq('role', 'admin').eq('is_active', true).is('deleted_at', null).neq('id', userId);
+      if (adminsError) throw adminsError;
+      if (!admins?.length) throw new Error('系統至少需保留一個啟用中的管理員帳號。');
+    }
+    const patch: Record<string, unknown> = action === 'enable'
+      ? { is_active: true, deleted_at: null }
+      : action === 'disable'
+        ? { is_active: false }
+        : { is_active: false, deleted_at: new Date().toISOString() };
+    const { error } = await supabase.from('profiles').update(patch).eq('id', userId);
+    if (error) throw error;
+    if (action === 'delete') {
+      await supabase.from('deleted_records').insert({
+        table_name: 'profiles',
+        record_id: userId,
+        data: target,
+        deleted_by: actor?.id,
+        deleted_by_name: actor?.display_name
+      });
+    }
+    await addAudit({
+      action_type: action === 'enable' ? '帳號啟用' : action === 'disable' ? '帳號停用' : '帳號刪除',
+      actor_id: actor?.id,
+      actor_name: actor?.display_name,
+      page_name: '帳號設定',
+      record_table: 'profiles',
+      record_id: userId,
+      old_data: target,
+      new_data: patch,
+      reason: action === 'delete' ? '管理員軟刪除帳號' : undefined
+    });
   });
 }
 
@@ -1548,6 +1664,7 @@ export async function deleteAnnouncement(row: AnnouncementItem, actor: Profile |
 }
 
 export async function upsertSettingTable<T extends { id?: string }>(table: string, payload: T, actor: Profile | null, pageName: string) {
+  assertAdmin(actor);
   const withActor = { ...payload, updated_by: actor?.id } as Record<string, unknown>;
   const isNew = !payload.id;
   if (isNew) withActor.created_by = actor?.id;

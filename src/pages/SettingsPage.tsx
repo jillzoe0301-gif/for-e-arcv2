@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState, type ReactNode } from 'react';
-import { softDelete, upsertSettingTable } from '../api/repository';
+import { softDelete, toggleSettingEnabled, updateProfileStatus, upsertSettingTable } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
@@ -89,22 +89,59 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
     }
   }
 
+  function isOnlyActiveAdmin(row: Profile) {
+    if (row.role !== 'admin') return false;
+    return data.profiles.filter((item) => item.role === 'admin' && item.is_active && !item.deleted_at && item.id !== row.id).length === 0;
+  }
+
+  function assertAccountOperationAllowed(row: Profile, actionName: string) {
+    if (!canManage) {
+      pushToast({ type: 'warning', title: '只有管理員可以操作帳號設定。' });
+      return false;
+    }
+    if (row.id === profile?.id && ['停用', '刪除'].includes(actionName)) {
+      pushToast({ type: 'warning', title: '不可操作目前登入中的帳號。' });
+      return false;
+    }
+    if (['停用', '刪除'].includes(actionName) && isOnlyActiveAdmin(row)) {
+      pushToast({ type: 'warning', title: '系統至少需保留一個啟用中的管理員帳號。' });
+      return false;
+    }
+    return true;
+  }
+
   async function resetPassword(row: Profile) {
-    if (!canManage) return pushToast({ type: 'warning', title: '行政不可修改其他人的帳號密碼。' });
+    if (!assertAccountOperationAllowed(row, '密碼重設')) return;
+    if (!window.confirm('確定要重設此帳號密碼嗎？')) return;
     const password = window.prompt(`請輸入 ${row.display_name} 的新密碼`, '123456');
     if (!password) return;
     try {
       await callAdminUsers('resetPassword', { userId: row.id, password });
-      pushToast({ type: 'success', title: '密碼已重設' });
+      pushToast({ type: 'success', title: '密碼已重設。' });
+      await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '重設失敗', message: err instanceof Error ? err.message : '' });
+      pushToast({ type: 'error', title: '重設失敗', message: err instanceof Error ? err.message : '請確認 arc-admin-users Edge Function 是否已部署' });
     }
   }
 
   async function toggleActive(row: Profile) {
-    if (!canManage) return pushToast({ type: 'warning', title: '只有管理員可以停用或啟用帳號。' });
+    const action = row.is_active ? '停用' : '啟用';
+    if (!assertAccountOperationAllowed(row, action)) return;
+    if (row.is_active && !window.confirm('確定要停用此帳號嗎？停用後該帳號將無法登入。')) return;
     try {
-      await callAdminUsers('updateProfile', { userId: row.id, profile: { is_active: !row.is_active } });
+      if (row.is_active) {
+        try {
+          await callAdminUsers('updateProfile', { userId: row.id, profile: { is_active: false } });
+        } catch {
+          await updateProfileStatus(row.id, 'disable', profile);
+        }
+      } else {
+        try {
+          await callAdminUsers('updateProfile', { userId: row.id, profile: { is_active: true, deleted_at: null } });
+        } catch {
+          await updateProfileStatus(row.id, 'enable', profile);
+        }
+      }
       pushToast({ type: 'success', title: row.is_active ? '帳號已停用' : '帳號已啟用' });
       await reload();
     } catch (err) {
@@ -113,10 +150,14 @@ function AccountSettings({ data, profile, reload }: { data: ArcData; profile: Pr
   }
 
   async function deleteUser(row: Profile) {
-    if (!canManage) return pushToast({ type: 'warning', title: '只有管理員可以刪除帳號。' });
-    if (!window.confirm(`確定要刪除帳號 ${row.display_name} 嗎？`)) return;
+    if (!assertAccountOperationAllowed(row, '刪除')) return;
+    if (!window.confirm('確定要刪除此帳號嗎？刪除後不可復原。')) return;
     try {
-      await callAdminUsers('deleteUser', { userId: row.id });
+      try {
+        await callAdminUsers('deleteUser', { userId: row.id });
+      } catch {
+        await updateProfileStatus(row.id, 'delete', profile);
+      }
       pushToast({ type: 'success', title: '帳號已刪除' });
       await reload();
     } catch (err) {
@@ -274,17 +315,30 @@ function JsonSetting({ title, group, settingKey, data, profile, reload }: { titl
   const setting = data.settings.find((item) => item.setting_group === group && item.setting_key === settingKey);
   const [text, setText] = useState(() => JSON.stringify(setting?.setting_value ?? {}, null, 2));
   async function save() {
+    if (profile?.role !== 'admin') return pushToast({ type: 'warning', title: '只有管理員可以修改系統設定。' });
     try {
       const value = JSON.parse(text || '{}');
-      if (setting?.id) await supabase.from('arc_settings').update({ setting_value: value, updated_by: profile?.id }).eq('id', setting.id);
-      else await supabase.from('arc_settings').insert({ setting_group: group, setting_key: settingKey, setting_value: value, created_by: profile?.id, updated_by: profile?.id });
+      if (setting?.id) await supabase.from('arc_settings').update({ setting_value: value, updated_by: profile?.id, is_enabled: true }).eq('id', setting.id);
+      else await supabase.from('arc_settings').insert({ setting_group: group, setting_key: settingKey, setting_value: value, is_enabled: true, created_by: profile?.id, updated_by: profile?.id });
       pushToast({ type: 'success', title: '設定已儲存' });
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: 'JSON 格式錯誤', message: err instanceof Error ? err.message : '' });
+      pushToast({ type: 'error', title: '設定儲存失敗', message: err instanceof Error ? err.message : '' });
     }
   }
-  return <section className="card full-width-card"><h2>{title}</h2><textarea className="json-editor" value={text} onChange={(e) => setText(e.target.value)} /><div className="form-actions"><button className="primary-button" onClick={save}>儲存設定</button></div></section>;
+  async function remove() {
+    if (profile?.role !== 'admin') return pushToast({ type: 'warning', title: '您沒有刪除權限。' });
+    if (!setting?.id) return pushToast({ type: 'warning', title: '目前沒有可刪除的設定資料。' });
+    if (!window.confirm('確定要刪除此設定嗎？')) return;
+    try {
+      await softDelete('arc_settings', setting as unknown as { id: string; [key: string]: unknown }, profile, title, '刪除系統 JSON 設定');
+      pushToast({ type: 'success', title: '設定已刪除' });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '' });
+    }
+  }
+  return <section className="card full-width-card"><div className="toolbar-row"><h2>{title}</h2>{setting?.id && profile?.role === 'admin' ? <button className="danger-link" onClick={remove}>刪除設定</button> : null}</div><textarea className="json-editor" value={text} onChange={(e) => setText(e.target.value)} /><div className="form-actions"><button className="primary-button" onClick={save} disabled={profile?.role !== 'admin'}>儲存設定</button></div></section>;
 }
 
 function ContactSettings({ title, table, rows, profile, reload }: { title: string; table: string; rows: ContactRecord[]; profile: Profile | null; reload: () => Promise<void> }) {
@@ -329,10 +383,12 @@ function CrudCard({ title, onNew, children }: { title: string; onNew: () => void
   return <section className="card full-width-card"><div className="toolbar-row"><h2>{title}</h2><button className="primary-button" onClick={onNew}>新增</button></div>{children}</section>;
 }
 
-function SettingActions<T extends { id: string }>({ row, table, pageName, profile, reload, onEdit }: { row: T; table: string; pageName: string; profile: Profile | null; reload: () => Promise<void>; onEdit: () => void }) {
+function SettingActions<T extends { id: string; is_enabled?: boolean }>({ row, table, pageName, profile, reload, onEdit }: { row: T; table: string; pageName: string; profile: Profile | null; reload: () => Promise<void>; onEdit: () => void }) {
   const { pushToast } = useToast();
+  const canManage = profile?.role === 'admin';
   async function remove() {
-    if (!window.confirm('確定要刪除此筆設定嗎？')) return;
+    if (!canManage) return pushToast({ type: 'warning', title: '您沒有刪除權限。' });
+    if (!window.confirm('確定要刪除此筆資料嗎？刪除後不可復原。')) return;
     try {
       await softDelete(table, row as unknown as { id: string; [key: string]: unknown }, profile, pageName);
       pushToast({ type: 'success', title: '已刪除' });
@@ -341,7 +397,19 @@ function SettingActions<T extends { id: string }>({ row, table, pageName, profil
       pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '' });
     }
   }
-  return <div className="action-stack horizontal"><button className="secondary-button mini" onClick={onEdit}>修改</button>{profile?.role === 'admin' ? <button className="danger-link" onClick={remove}>刪除</button> : null}</div>;
+  async function toggleEnabled() {
+    if (!canManage) return pushToast({ type: 'warning', title: '您沒有停用或啟用權限。' });
+    const nextEnabled = !row.is_enabled;
+    if (!window.confirm(nextEnabled ? '確定要啟用此設定項目嗎？' : '確定要停用此設定項目嗎？')) return;
+    try {
+      await toggleSettingEnabled(table, row as unknown as { id: string; is_enabled?: boolean; [key: string]: unknown }, nextEnabled, profile, pageName);
+      pushToast({ type: 'success', title: nextEnabled ? '已啟用' : '已停用' });
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: nextEnabled ? '啟用失敗' : '停用失敗', message: err instanceof Error ? err.message : '' });
+    }
+  }
+  return <div className="action-stack horizontal"><button className="secondary-button mini" onClick={onEdit}>修改</button>{canManage && typeof row.is_enabled === 'boolean' ? <button className="secondary-button mini" onClick={toggleEnabled}>{row.is_enabled ? '停用' : '啟用'}</button> : null}{canManage ? <button className="danger-link" onClick={remove}>刪除</button> : <span className="subtle-text">僅管理員可刪除</span>}</div>;
 }
 
 function TextField({ label, value, onChange }: { label: string; value: unknown; onChange: (value: string) => void }) {

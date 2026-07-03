@@ -28,6 +28,7 @@ export function AnnouncementsPage({ data, profile, reload }: { data: ArcData; pr
   const [keyword, setKeyword] = useState('');
   const [editing, setEditing] = useState<Partial<AnnouncementItem> | null>(null);
   const canManage = canManageAnnouncements(profile?.role);
+  const canDelete = profile?.role === 'admin';
 
   const filtered = useMemo(() => data.announcements.filter((row) => rowMatchesKeyword(keyword, [row.title, row.content, row.display_pages?.join(' '), row.created_by_name, row.updated_by_name])), [data.announcements, keyword]);
 
@@ -82,7 +83,7 @@ export function AnnouncementsPage({ data, profile, reload }: { data: ArcData; pr
   }
 
   async function remove(row: AnnouncementItem) {
-    if (!canManage) return pushToast({ type: 'warning', title: '您沒有修改公告事項的權限。' });
+    if (!canDelete) return pushToast({ type: 'warning', title: '您沒有刪除權限。' });
     if (!window.confirm('確定要刪除此筆公告事項嗎？')) return;
     try {
       await deleteAnnouncement(row, profile);
@@ -112,7 +113,7 @@ export function AnnouncementsPage({ data, profile, reload }: { data: ArcData; pr
           { key: 'date', title: '顯示日期', render: (row: AnnouncementItem) => `${row.start_date || '不限'} ～ ${row.end_date || '不限'}` },
           { key: 'status', title: '狀態', render: (row: AnnouncementItem) => <span className={row.is_enabled ? 'status-badge status-completed' : 'status-badge status-cancelled'}>{row.is_enabled ? '啟用' : '停用'}</span> },
           { key: 'pin', title: '置頂', render: (row: AnnouncementItem) => row.is_pinned ? '是' : '否' },
-          { key: 'action', title: '操作', render: (row: AnnouncementItem) => canManage ? <div className="action-stack horizontal"><button className="secondary-button mini" onClick={() => openEdit(row)}>修改</button><button className="secondary-button mini" onClick={() => toggle(row)}>{row.is_enabled ? '停用' : '啟用'}</button><button className="danger-link" onClick={() => remove(row)}>刪除</button></div> : '僅可查看' }
+          { key: 'action', title: '操作', render: (row: AnnouncementItem) => canManage ? <div className="action-stack horizontal"><button className="secondary-button mini" onClick={() => openEdit(row)}>修改</button><button className="secondary-button mini" onClick={() => toggle(row)}>{row.is_enabled ? '停用' : '啟用'}</button>{canDelete ? <button className="danger-link" onClick={() => remove(row)}>刪除</button> : null}</div> : '僅可查看' }
         ]} rows={filtered} rowKey={(row) => row.id} emptyText="目前沒有公告事項" />
       </section>
 

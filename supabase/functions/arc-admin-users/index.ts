@@ -1,5 +1,5 @@
 // Supabase Edge Function: arc-admin-users
-// 作用：管理員帳號新增、停用、刪除、密碼重設。
+// 作用：管理員帳號新增、停用、啟用、軟刪除、密碼重設。
 // 部署：supabase functions deploy arc-admin-users --no-verify-jwt
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
@@ -32,7 +32,7 @@ serve(async (req) => {
       .eq('id', userResult.user.id)
       .maybeSingle();
     if (profileError) throw profileError;
-    if (!profile || profile.role !== 'admin' || !profile.is_active) throw new Error('Only admin can manage users.');
+    if (!profile || profile.role !== 'admin' || !profile.is_active || profile.deleted_at) throw new Error('Only admin can manage users.');
 
     const body = await req.json();
     const action = body.action;
@@ -54,6 +54,7 @@ serve(async (req) => {
         display_name,
         role,
         is_active: true,
+        deleted_at: null,
         must_change_password: true
       });
       if (upsertError) throw upsertError;
@@ -64,39 +65,52 @@ serve(async (req) => {
     if (action === 'updateProfile') {
       const { userId, profile: patch } = body;
       if (!userId || !patch) throw new Error('Missing updateProfile fields.');
-      const { data: oldData } = await adminClient.from('profiles').select('*').eq('id', userId).maybeSingle();
+      const { data: oldData, error: oldError } = await adminClient.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (oldError) throw oldError;
+      if (!oldData) throw new Error('找不到要更新的帳號。');
+      await assertAccountSafeOperation(adminClient, profile, oldData, patch.is_active === false ? 'disable' : 'update');
       const { error } = await adminClient.from('profiles').update(patch).eq('id', userId);
       if (error) throw error;
-      await writeAudit(adminClient, profile, '修改帳號', '帳號設定', 'profiles', userId, oldData, patch);
+      await writeAudit(adminClient, profile, patch.is_active === false ? '帳號停用' : patch.is_active === true ? '帳號啟用' : '修改帳號', '帳號設定', 'profiles', userId, oldData, withoutPassword(patch));
       return json({ ok: true });
     }
 
     if (action === 'resetPassword') {
       const { userId, password } = body;
       if (!userId || !password) throw new Error('Missing resetPassword fields.');
+      const { data: oldData, error: oldError } = await adminClient.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (oldError) throw oldError;
+      if (!oldData || oldData.deleted_at) throw new Error('找不到可重設密碼的帳號。');
       const { error } = await adminClient.auth.admin.updateUserById(userId, { password });
       if (error) throw error;
       await adminClient.from('profiles').update({ must_change_password: true }).eq('id', userId);
-      await writeAudit(adminClient, profile, '密碼重設', '帳號設定', 'profiles', userId, null, { must_change_password: true });
+      await writeAudit(adminClient, profile, '密碼重設', '帳號設定', 'profiles', userId, { email: oldData.email, display_name: oldData.display_name }, { must_change_password: true, message: '密碼已重設，未保存明文密碼。' });
       return json({ ok: true });
     }
 
     if (action === 'deleteUser') {
       const { userId } = body;
       if (!userId) throw new Error('Missing deleteUser fields.');
-      const { data: oldData } = await adminClient.from('profiles').select('*').eq('id', userId).maybeSingle();
-      if (oldData) {
-        await adminClient.from('deleted_records').insert({
-          table_name: 'profiles',
-          record_id: userId,
-          data: oldData,
-          deleted_by: profile.id,
-          deleted_by_name: profile.display_name
-        });
+      const { data: oldData, error: oldError } = await adminClient.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (oldError) throw oldError;
+      if (!oldData) throw new Error('找不到要刪除的帳號。');
+      await assertAccountSafeOperation(adminClient, profile, oldData, 'delete');
+      await adminClient.from('deleted_records').insert({
+        table_name: 'profiles',
+        record_id: userId,
+        data: oldData,
+        deleted_by: profile.id,
+        deleted_by_name: profile.display_name
+      });
+      const patch = { is_active: false, deleted_at: new Date().toISOString(), must_change_password: true };
+      const { error: updateError } = await adminClient.from('profiles').update(patch).eq('id', userId);
+      if (updateError) throw updateError;
+      try {
+        await adminClient.auth.admin.updateUserById(userId, { user_metadata: { ...(oldData.user_metadata ?? {}), arc_deleted: true } });
+      } catch (_) {
+        // Auth 使用者不硬刪，避免歷史資料斷裂；登入時會由 profiles 狀態阻擋。
       }
-      const { error } = await adminClient.auth.admin.deleteUser(userId);
-      if (error) throw error;
-      await writeAudit(adminClient, profile, '刪除帳號', '帳號設定', 'profiles', userId, oldData, null);
+      await writeAudit(adminClient, profile, '刪除帳號', '帳號設定', 'profiles', userId, oldData, { ...patch, delete_mode: 'soft_delete' });
       return json({ ok: true });
     }
 
@@ -111,6 +125,29 @@ function json(payload: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
+}
+
+function withoutPassword(payload: Record<string, unknown>) {
+  const copy = { ...payload };
+  delete copy.password;
+  return copy;
+}
+
+async function assertAccountSafeOperation(client: ReturnType<typeof createClient>, actor: Record<string, unknown>, target: Record<string, unknown>, action: 'update' | 'disable' | 'delete') {
+  if (target.id === actor.id && ['disable', 'delete'].includes(action)) {
+    throw new Error('不可操作目前登入中的帳號。');
+  }
+  if (target.role === 'admin' && ['disable', 'delete'].includes(action)) {
+    const { count, error } = await client
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'admin')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .neq('id', target.id);
+    if (error) throw error;
+    if (!count || count < 1) throw new Error('系統至少需保留一個啟用中的管理員帳號。');
+  }
 }
 
 async function writeAudit(client: ReturnType<typeof createClient>, actor: Record<string, unknown>, actionType: string, pageName: string, table: string, recordId: string, oldData: unknown, newData: unknown) {

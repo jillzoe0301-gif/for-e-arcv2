@@ -70,11 +70,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
     const displayName = data.user?.user_metadata?.display_name ?? email;
     if (data.user) {
+      const { data: profileRow, error: profileError } = await supabase.from('profiles').select('*').eq('id', data.user.id).maybeSingle();
+      if (profileError) throw profileError;
+      if (!profileRow || !profileRow.is_active || profileRow.deleted_at) {
+        await supabase.auth.signOut();
+        clearRememberLogin();
+        throw new Error('此帳號已停用或刪除，請聯絡管理員。');
+      }
       await supabase.from('profiles').update({ last_login_at: new Date().toISOString() }).eq('id', data.user.id);
       await supabase.from('audit_logs').insert({
         action_type: '登入',
         actor_id: data.user.id,
-        actor_name: displayName,
+        actor_name: profileRow.display_name ?? displayName,
         page_name: '登入',
         new_data: { email }
       });
