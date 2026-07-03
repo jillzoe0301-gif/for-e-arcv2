@@ -98,7 +98,7 @@ button:disabled { cursor: not-allowed; opacity: .65; }
 }
 .brand-logo.large { width:64px; height:64px; border-radius:18px; font-size:20px; }
 .side-nav { display:grid; gap:5px; }
-.side-nav button, .logout-button {
+.side-nav button, .logout-button, .password-button {
   border:0;
   background:transparent;
   color:#fff;
@@ -110,7 +110,7 @@ button:disabled { cursor: not-allowed; opacity: .65; }
   text-align:left;
   transition:.15s ease;
 }
-.side-nav button svg, .logout-button svg { color:#fff; flex:0 0 auto; }
+.side-nav button svg, .logout-button svg, .password-button svg { color:#fff; flex:0 0 auto; }
 .side-nav button:hover { background: rgba(255,255,255,.12); }
 .side-nav button.active { background: var(--gold); color:#1f456f; font-weight:800; }
 .side-nav button.active svg { color:#1f456f; }
@@ -118,7 +118,8 @@ button:disabled { cursor: not-allowed; opacity: .65; }
 .profile-chip { display:flex; align-items:center; gap:10px; padding:10px; background:rgba(255,255,255,.1); border-radius:14px; }
 .profile-chip strong, .profile-chip span { display:block; }
 .profile-chip span { font-size:12px; opacity:.8; margin-top:2px; }
-.logout-button { width:100%; background:rgba(0,0,0,.15); justify-content:center; }
+.logout-button, .password-button { width:100%; background:rgba(0,0,0,.15); justify-content:center; }
+.password-button { background:rgba(255,255,255,.10); }
 
 .main-panel { min-width:0; padding: 26px; }
 .page-content { display:grid; gap:18px; width:100%; max-width: none; }
@@ -320,8 +321,8 @@ pre { white-space:pre-wrap; word-break:break-word; background:#f6f7f2; padding:1
   .app-shell { grid-template-columns: 84px minmax(0, 1fr); }
   .sidebar { padding:14px 10px; }
   .brand-block { justify-content:center; }
-  .brand-block > div:not(.brand-logo), .side-nav span, .profile-chip div, .logout-button { font-size:0; }
-  .side-nav button, .logout-button { justify-content:center; padding:12px; }
+  .brand-block > div:not(.brand-logo), .side-nav span, .profile-chip div, .logout-button, .password-button { font-size:0; }
+  .side-nav button, .logout-button, .password-button { justify-content:center; padding:12px; }
   .profile-chip { justify-content:center; }
   .dashboard-grid { grid-template-columns:repeat(2, minmax(0,1fr)); }
   .payment-panel { grid-template-columns:repeat(2, minmax(0,1fr)); }
@@ -331,9 +332,9 @@ pre { white-space:pre-wrap; word-break:break-word; background:#f6f7f2; padding:1
 @media (max-width: 760px) {
   .app-shell { display:block; }
   .sidebar { position:relative; height:auto; min-height:0; border-radius:0 0 22px 22px; }
-  .brand-block > div:not(.brand-logo), .side-nav span, .profile-chip div, .logout-button { font-size:inherit; }
+  .brand-block > div:not(.brand-logo), .side-nav span, .profile-chip div, .logout-button, .password-button { font-size:inherit; }
   .side-nav { grid-template-columns:repeat(2, minmax(0,1fr)); }
-  .side-nav button, .logout-button { justify-content:flex-start; }
+  .side-nav button, .logout-button, .password-button { justify-content:flex-start; }
   .main-panel { padding:16px; }
   .page-header { display:grid; }
   .form-grid, .form-grid.two-col, .payment-panel, .finance-detail-head, .reminder-row, .dashboard-grid { grid-template-columns:1fr; }

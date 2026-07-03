@@ -1,4 +1,6 @@
-ARC V13 V34/V35 build check:
-- npm install completed
-- npm run build completed successfully in artifact generation environment
-- no new Supabase migration required
+ARC V13.39
+- 傳真領件收費日期可手動修改。
+- 同一領件日收據順序防重，包含預計領件區。
+- 預計領件區可移除並回到移民署傳真領件。
+- 已填入資訊可一鍵加入預計。
+- 登入後可修改自己的密碼，不保存明文密碼。

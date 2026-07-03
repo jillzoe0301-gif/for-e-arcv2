@@ -918,9 +918,10 @@ export async function updateCaseFaxOptions(params: {
   caseRow: ArcCase;
   oldCardChecked?: boolean;
   handlerLast4?: string;
+  paymentDate?: string;
   actor: Profile | null;
 }) {
-  const { caseRow, oldCardChecked, handlerLast4, actor } = params;
+  const { caseRow, oldCardChecked, handlerLast4, paymentDate, actor } = params;
   const patch: Partial<ArcCase> & { updated_by?: string } = { updated_by: actor?.id };
   const oldData: Record<string, unknown> = { 案件編號: caseRow.case_no };
   const newData: Record<string, unknown> = { 案件編號: caseRow.case_no };
@@ -937,11 +938,16 @@ export async function updateCaseFaxOptions(params: {
       newData.新經手人後四碼 = clean;
     }
   }
+  if (paymentDate !== undefined && paymentDate !== (caseRow.payment_date ?? '')) {
+    patch.payment_date = paymentDate;
+    oldData.原收費日期 = caseRow.payment_date ?? '';
+    newData.修改後收費日期 = paymentDate;
+  }
   if (Object.keys(patch).length <= 1) return;
   const { error } = await supabase.from('arc_cases').update(patch).eq('id', caseRow.id);
   if (error) throw error;
   await addAudit({
-    action_type: oldCardChecked !== undefined && handlerLast4 === undefined ? '舊卡狀態修改' : handlerLast4 !== undefined && oldCardChecked === undefined ? '經手人後四碼修改' : '傳真領件欄位修改',
+    action_type: paymentDate !== undefined && oldCardChecked === undefined && handlerLast4 === undefined ? '收費日期修改' : oldCardChecked !== undefined && handlerLast4 === undefined && paymentDate === undefined ? '舊卡狀態修改' : handlerLast4 !== undefined && oldCardChecked === undefined && paymentDate === undefined ? '經手人後四碼修改' : '傳真領件欄位修改',
     actor_id: actor?.id,
     actor_name: actor?.display_name,
     page_name: '傳真/領件',
@@ -992,8 +998,9 @@ export async function addFaxPickupPlan(params: {
   actor: Profile | null;
   oldCardChecked?: boolean;
   handlerLast4?: string;
+  paymentDate?: string;
 }) {
-  const { caseRow, receiptNo, foreignNoLast5, receiptOrder, faxDate, expectedPickupDate, data, actor, oldCardChecked, handlerLast4 } = params;
+  const { caseRow, receiptNo, foreignNoLast5, receiptOrder, faxDate, expectedPickupDate, data, actor, oldCardChecked, handlerLast4, paymentDate } = params;
   const duplicateOrder = data.faxPickupItems.find((item) =>
     item.status === 'pending' &&
     item.expected_pickup_date === expectedPickupDate &&
@@ -1032,6 +1039,7 @@ export async function addFaxPickupPlan(params: {
     receipt_order: receiptOrder,
     old_card_checked: oldCardChecked ?? caseRow.old_card_checked ?? false,
     handler_last4: handlerLast4 !== undefined ? handlerLast4.trim().replace(/\D/g, '').slice(0, 4) : (caseRow.handler_last4 ?? null),
+    payment_date: paymentDate ?? caseRow.payment_date ?? null,
     fax_date: faxDate,
     expected_pickup_date: expectedPickupDate,
     pickup_status: 'pending',
@@ -1047,6 +1055,56 @@ export async function addFaxPickupPlan(params: {
     record_table: 'fax_pickup_items',
     record_id: existing?.id,
     new_data: payload
+  });
+}
+
+
+export async function removeFaxPickupPlan(params: {
+  plan: FaxPickupItem;
+  caseRow: ArcCase;
+  actor: Profile | null;
+}) {
+  const { plan, caseRow, actor } = params;
+  if (!actor || !['admin', 'staff'].includes(actor.role)) throw new Error('您沒有移除預計領件資料的權限。');
+  const { error: planError } = await supabase.from('fax_pickup_items').update({
+    status: 'cancelled',
+    updated_by: actor.id
+  }).eq('id', plan.id);
+  if (planError) throw planError;
+  const { error: caseError } = await supabase.from('arc_cases').update({
+    status: 'pending_pickup',
+    pickup_status: null,
+    receipt_no: plan.receipt_no,
+    foreign_no_last5: plan.foreign_no_last5,
+    receipt_order: plan.receipt_order,
+    old_card_checked: plan.old_card_checked ?? caseRow.old_card_checked ?? false,
+    handler_last4: plan.handler_last4 ?? caseRow.handler_last4 ?? null,
+    fax_date: plan.fax_date,
+    expected_pickup_date: plan.expected_pickup_date,
+    updated_by: actor.id
+  }).eq('id', caseRow.id);
+  if (caseError) throw caseError;
+  await addAudit({
+    action_type: '預計領件區移除',
+    actor_id: actor.id,
+    actor_name: actor.display_name,
+    page_name: '傳真/領件',
+    record_table: 'fax_pickup_items',
+    record_id: plan.id,
+    old_data: {
+      案件編號: caseRow.case_no,
+      雇主: caseRow.employer_name,
+      工人: caseRow.worker_name,
+      團號: caseRow.group_no,
+      原領件日: plan.expected_pickup_date,
+      原收據順序: plan.receipt_order,
+      原預計領件資料: plan
+    },
+    new_data: {
+      狀態: '待加入預計領件',
+      流向: '回到移民署傳真領件'
+    },
+    reason: '從預計領件區移除，案件回到移民署傳真領件待處理區。'
   });
 }
 
@@ -1130,6 +1188,8 @@ export async function markPickupNotReceived(params: {
     receipt_no: caseRow.receipt_no ?? '',
     foreign_no_last5: caseRow.foreign_no_last5 ?? '',
     receipt_order: caseRow.receipt_order ?? 0,
+    old_card_checked: caseRow.old_card_checked ?? false,
+    handler_last4: caseRow.handler_last4 ?? null,
     fax_date: caseRow.fax_date ?? todayTaipei(),
     expected_pickup_date: nextDate,
     status: 'pending',

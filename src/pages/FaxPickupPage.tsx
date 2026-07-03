@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { addFaxPickupPlan, createPickupRecord, deletePickupRecord, markCasePickedUp, markPickupNotReceived, updateCaseFaxOptions } from '../api/repository';
+import { addFaxPickupPlan, createPickupRecord, deletePickupRecord, markCasePickedUp, markPickupNotReceived, removeFaxPickupPlan, updateCaseFaxOptions } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
@@ -12,7 +12,7 @@ import { canCompletePickup, canDeletePickupRecord } from '../utils/permissions';
 import { printFaxAndSignatureSheets, printFaxPickupSheet, printSignatureSheet } from '../utils/print';
 import { rowMatchesKeyword } from '../utils/search';
 
-type FaxDraft = { receipt_no: string; foreign_no_last5: string; receipt_order: string; expected_pickup_date: string; fax_date: string; old_card_checked: boolean; handler_last4: string };
+type FaxDraft = { payment_date: string; receipt_no: string; foreign_no_last5: string; receipt_order: string; expected_pickup_date: string; fax_date: string; old_card_checked: boolean; handler_last4: string };
 type DraftMap = Record<string, FaxDraft>;
 
 export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
@@ -34,14 +34,17 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { label: '週四領件', today: weekday === 4 }
   ];
 
+  const pendingPlanCaseIds = useMemo(() => new Set(data.faxPickupItems.filter((item) => item.status === 'pending').map((item) => item.case_id)), [data.faxPickupItems]);
+
   const readyCases = useMemo(() => data.cases
     .filter((caseRow) => ['pending_pickup', 'not_received'].includes(caseRow.status))
+    .filter((caseRow) => !pendingPlanCaseIds.has(caseRow.id))
     .filter((caseRow) => rowMatchesKeyword(keyword, [caseRow.employer_name, caseRow.worker_name, caseRow.group_no, caseRow.case_no, caseRow.receipt_no, caseRow.foreign_no_last5]))
     .sort((a, b) =>
       String(a.payment_date ?? a.application_date).localeCompare(String(b.payment_date ?? b.application_date)) ||
       String(a.receipt_no ?? '').localeCompare(String(b.receipt_no ?? ''), 'zh-Hant', { numeric: true }) ||
       String(a.foreign_no_last5 ?? '').localeCompare(String(b.foreign_no_last5 ?? ''), 'zh-Hant', { numeric: true })
-    ), [data.cases, keyword]);
+    ), [data.cases, keyword, pendingPlanCaseIds]);
 
   const plannedItems = useMemo(() => data.faxPickupItems
     .filter((item) => item.status === 'pending' && item.expected_pickup_date === planDate)
@@ -60,11 +63,12 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
 
   function draftFor(caseRow: ArcCase): FaxDraft {
     return drafts[caseRow.id] ?? {
+      payment_date: caseRow.payment_date ?? caseRow.application_date ?? todayTaipei(),
       receipt_no: caseRow.receipt_no ?? '',
       foreign_no_last5: caseRow.foreign_no_last5 ?? '',
       receipt_order: String(caseRow.receipt_order ?? ''),
       fax_date: caseRow.fax_date ?? todayTaipei(),
-      expected_pickup_date: caseRow.expected_pickup_date ?? nextWeekThursday(),
+      expected_pickup_date: caseRow.expected_pickup_date ?? planDate ?? nextWeekThursday(),
       old_card_checked: isOldCardChecked(caseRow),
       handler_last4: caseRow.handler_last4 ?? ''
     };
@@ -80,16 +84,29 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     return value.trim().replace(/\D/g, '').slice(0, 4);
   }
 
+  function sameDayReceiptOrders(expectedPickupDate: string, excludeCaseId?: string) {
+    const orders = data.faxPickupItems
+      .filter((item) => item.status === 'pending' && item.expected_pickup_date === expectedPickupDate && item.case_id !== excludeCaseId)
+      .map((item) => Number(item.receipt_order || 0))
+      .filter((order) => order > 0);
+    for (const [caseId, draft] of Object.entries(drafts)) {
+      if (caseId === excludeCaseId) continue;
+      if ((draft.expected_pickup_date || nextWeekThursday()) !== expectedPickupDate) continue;
+      const order = Number(draft.receipt_order || 0);
+      if (Number.isInteger(order) && order > 0) orders.push(order);
+    }
+    return orders;
+  }
+
   function receiptOrderDuplicateMessage(caseId: string, expectedPickupDate: string, receiptOrder: number) {
-    const sameDayPending = data.faxPickupItems.filter((item) =>
-      item.status === 'pending' &&
-      item.expected_pickup_date === expectedPickupDate &&
-      item.case_id !== caseId
-    );
-    const duplicate = sameDayPending.some((item) => Number(item.receipt_order) === Number(receiptOrder));
+    const orders = sameDayReceiptOrders(expectedPickupDate, caseId);
+    const duplicate = orders.includes(Number(receiptOrder));
     if (!duplicate) return '';
-    const used = Math.max(...sameDayPending.map((item) => Number(item.receipt_order || 0)), 0);
-    return `此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${used + 1} 號。`;
+    const used = Math.max(...orders, Number(receiptOrder), 0);
+    const usedSet = new Set(orders);
+    let suggested = 1;
+    while (usedSet.has(suggested) || suggested === Number(receiptOrder)) suggested += 1;
+    return `此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${suggested} 號。`;
   }
 
   function validateReceiptOrder(caseRow: ArcCase, expectedPickupDate: string, receiptOrder: number) {
@@ -99,6 +116,36 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       return false;
     }
     return true;
+  }
+
+  function changeReceiptOrder(caseRow: ArcCase, value: string) {
+    const clean = value.trim().replace(/\D/g, '');
+    if (!clean) {
+      setDraft(caseRow.id, 'receipt_order', '');
+      return;
+    }
+    const order = Number(clean);
+    const expectedDate = draftFor(caseRow).expected_pickup_date || nextWeekThursday();
+    const message = receiptOrderDuplicateMessage(caseRow.id, expectedDate, order);
+    if (message) {
+      pushToast({ type: 'warning', title: '收據順序重複', message });
+      setDraft(caseRow.id, 'receipt_order', '');
+      return;
+    }
+    setDraft(caseRow.id, 'receipt_order', clean);
+  }
+
+  function changeExpectedPickupDate(caseRow: ArcCase, value: string) {
+    const nextDate = value || nextWeekThursday();
+    const currentOrder = Number(draftFor(caseRow).receipt_order || 0);
+    setDraft(caseRow.id, 'expected_pickup_date', nextDate);
+    if (currentOrder > 0) {
+      const message = receiptOrderDuplicateMessage(caseRow.id, nextDate, currentOrder);
+      if (message) {
+        pushToast({ type: 'warning', title: '收據順序重複', message });
+        setDraft(caseRow.id, 'receipt_order', '');
+      }
+    }
   }
 
   function validatePlannedReceiptOrders(plans: FaxPickupItem[]) {
@@ -120,7 +167,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     return true;
   }
 
-  async function saveFaxOption(caseRow: ArcCase, patch: { oldCardChecked?: boolean; handlerLast4?: string }) {
+  async function saveFaxOption(caseRow: ArcCase, patch: { oldCardChecked?: boolean; handlerLast4?: string; paymentDate?: string }) {
     try {
       await updateCaseFaxOptions({ caseRow, actor: profile, ...patch });
       await reload();
@@ -129,18 +176,44 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
-  async function addPlan(caseRow: ArcCase) {
+  async function savePaymentDate(caseRow: ArcCase) {
+    const raw = draftFor(caseRow).payment_date;
+    const parsed = parseDateLoose(raw);
+    if (!parsed) {
+      pushToast({ type: 'warning', title: '收費日期格式不正確，請重新輸入。' });
+      setDraft(caseRow.id, 'payment_date', caseRow.payment_date ?? caseRow.application_date ?? todayTaipei());
+      return null;
+    }
+    setDraft(caseRow.id, 'payment_date', parsed);
+    if (parsed !== (caseRow.payment_date ?? '')) await saveFaxOption(caseRow, { paymentDate: parsed });
+    return parsed;
+  }
+
+  function validateDraftBasics(caseRow: ArcCase) {
     const draft = draftFor(caseRow);
+    const paymentDate = parseDateLoose(draft.payment_date);
+    if (!paymentDate) {
+      pushToast({ type: 'warning', title: '收費日期格式不正確，請重新輸入。' });
+      return null;
+    }
     if (!draft.receipt_no.trim() || !draft.foreign_no_last5.trim() || !draft.receipt_order.trim()) {
       pushToast({ type: 'warning', title: '請補齊資料', message: '收件編號、外字末五碼、收據順序都必填。' });
-      return;
+      return null;
     }
     const order = Number(draft.receipt_order);
     if (!Number.isInteger(order) || order <= 0) {
       pushToast({ type: 'warning', title: '收據順序格式錯誤' });
-      return;
+      return null;
     }
-    if (!validateReceiptOrder(caseRow, draft.expected_pickup_date || nextWeekThursday(), order)) return;
+    const expectedPickupDate = draft.expected_pickup_date || nextWeekThursday();
+    if (!validateReceiptOrder(caseRow, expectedPickupDate, order)) return null;
+    return { draft, paymentDate, order, expectedPickupDate };
+  }
+
+  async function addPlan(caseRow: ArcCase) {
+    const valid = validateDraftBasics(caseRow);
+    if (!valid) return;
+    const { draft, paymentDate, order, expectedPickupDate } = valid;
     try {
       await addFaxPickupPlan({
         caseRow,
@@ -148,14 +221,15 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
         foreignNoLast5: draft.foreign_no_last5.trim(),
         receiptOrder: order,
         faxDate: draft.fax_date || todayTaipei(),
-        expectedPickupDate: draft.expected_pickup_date || nextWeekThursday(),
+        expectedPickupDate,
         data,
         actor: profile,
         oldCardChecked: draft.old_card_checked,
-        handlerLast4: draft.handler_last4
+        handlerLast4: draft.handler_last4,
+        paymentDate
       });
       pushToast({ type: 'success', title: '已加入預計領件區' });
-      setPlanDate(draft.expected_pickup_date || nextWeekThursday());
+      setPlanDate(expectedPickupDate);
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '加入失敗', message: err instanceof Error ? err.message : '請檢查收據順序是否重複' });
@@ -168,6 +242,64 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
 
   function selectAllPlans() {
     setSelectedPlanIds(plannedItems.map((item) => item.id));
+  }
+
+  async function addFilledDraftsToPlan() {
+    const reserved = new Map<string, Set<number>>();
+    data.faxPickupItems.filter((item) => item.status === 'pending').forEach((item) => {
+      const key = item.expected_pickup_date;
+      const set = reserved.get(key) ?? new Set<number>();
+      set.add(Number(item.receipt_order || 0));
+      reserved.set(key, set);
+    });
+    let success = 0;
+    let skipped = 0;
+    for (const caseRow of readyCases) {
+      const draft = draftFor(caseRow);
+      const paymentDate = parseDateLoose(draft.payment_date);
+      const expectedPickupDate = draft.expected_pickup_date || planDate || nextWeekThursday();
+      const order = Number(draft.receipt_order || 0);
+      const requiredFilled = Boolean(draft.receipt_no.trim() && draft.foreign_no_last5.trim() && draft.receipt_order.trim());
+      const set = reserved.get(expectedPickupDate) ?? new Set<number>();
+      if (!requiredFilled || !paymentDate || !Number.isInteger(order) || order <= 0 || set.has(order)) {
+        skipped += 1;
+        continue;
+      }
+      set.add(order);
+      reserved.set(expectedPickupDate, set);
+      try {
+        await addFaxPickupPlan({
+          caseRow,
+          receiptNo: draft.receipt_no.trim(),
+          foreignNoLast5: draft.foreign_no_last5.trim(),
+          receiptOrder: order,
+          faxDate: draft.fax_date || todayTaipei(),
+          expectedPickupDate,
+          data,
+          actor: profile,
+          oldCardChecked: draft.old_card_checked,
+          handlerLast4: draft.handler_last4,
+          paymentDate
+        });
+        success += 1;
+      } catch {
+        skipped += 1;
+      }
+    }
+    pushToast({ type: success ? 'success' : 'warning', title: '一鍵加入預計完成', message: `已成功加入 ${success} 筆，${skipped} 筆因資料未填完整或收據順序重複未加入。` });
+    await reload();
+  }
+
+  async function removePlan(row: { plan: FaxPickupItem; caseRow: ArcCase }) {
+    if (!window.confirm('確定要將此案件移出預計領件區嗎？移除後會回到移民署傳真領件。')) return;
+    try {
+      await removeFaxPickupPlan({ plan: row.plan, caseRow: row.caseRow, actor: profile });
+      pushToast({ type: 'success', title: '已移出預計領件區', message: '案件已回到移民署傳真領件。' });
+      setSelectedPlanIds((current) => current.filter((id) => id !== row.plan.id));
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '移除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
   }
 
   async function createRecordForPlanIds(planIds: string[]) {
@@ -189,29 +321,23 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     const plan = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
     try {
       if (!plan) {
-        if (!draft.receipt_no.trim() || !draft.foreign_no_last5.trim() || !draft.receipt_order.trim()) {
-          pushToast({ type: 'warning', title: '請補齊資料', message: '單筆領件前需填收件編號、外字末五碼、收據順序。' });
-          return;
-        }
-        const order = Number(draft.receipt_order);
-        if (!Number.isInteger(order) || order <= 0) {
-          pushToast({ type: 'warning', title: '收據順序格式錯誤' });
-          return;
-        }
-        if (!validateReceiptOrder(caseRow, draft.expected_pickup_date || nextWeekThursday(), order)) return;
+        const valid = validateDraftBasics(caseRow);
+        if (!valid) return;
+        const { draft, paymentDate, order, expectedPickupDate } = valid;
         await addFaxPickupPlan({
           caseRow,
           receiptNo: draft.receipt_no.trim(),
           foreignNoLast5: draft.foreign_no_last5.trim(),
           receiptOrder: order,
           faxDate: draft.fax_date || todayTaipei(),
-          expectedPickupDate: draft.expected_pickup_date || nextWeekThursday(),
+          expectedPickupDate,
           data,
           actor: profile,
           oldCardChecked: draft.old_card_checked,
-          handlerLast4: draft.handler_last4
+          handlerLast4: draft.handler_last4,
+          paymentDate
         });
-        const pickupDate = draft.expected_pickup_date || nextWeekThursday();
+        const pickupDate = expectedPickupDate;
         await createPickupRecord({ caseIds: [caseRow.id], pickupDate, data, actor: profile });
         pushToast({ type: 'success', title: '單筆領件已建立' });
         setPlanDate(pickupDate);
@@ -330,7 +456,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
 
   const readyColumns = [
     { key: 'no', title: '編號', render: (_row: ArcCase, index: number) => index + 1 },
-    { key: 'feeDate', title: '收費日期', render: (row: ArcCase) => formatDate(row.payment_date) },
+    { key: 'feeDate', title: '收費日期', render: (row: ArcCase) => <input className="mini-input date" value={draftFor(row).payment_date} onChange={(e) => setDraft(row.id, 'payment_date', e.target.value)} onBlur={() => savePaymentDate(row)} placeholder="YYYY-MM-DD" /> },
     { key: 'receiptNo', title: '收件編號', render: (row: ArcCase) => <input className="mini-input" value={draftFor(row).receipt_no} onChange={(e) => setDraft(row.id, 'receipt_no', e.target.value)} /> },
     { key: 'ic', title: 'IC 卡', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_ic_card ? 'V' : '' },
     { key: 'count', title: '張數', render: () => '1' },
@@ -340,8 +466,8 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'employer', title: '雇主', className: 'prominent-person-cell', render: (row: ArcCase) => row.employer_name },
     { key: 'worker', title: '工人', className: 'prominent-person-cell', render: (row: ArcCase) => row.worker_name },
     { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name },
-    { key: 'order', title: '收據順序', render: (row: ArcCase) => <input className="mini-input number" value={draftFor(row).receipt_order} onChange={(e) => setDraft(row.id, 'receipt_order', e.target.value)} /> },
-    { key: 'date', title: '領件日', render: (row: ArcCase) => <input type="date" className="mini-input date" value={draftFor(row).expected_pickup_date} onChange={(e) => setDraft(row.id, 'expected_pickup_date', e.target.value)} /> },
+    { key: 'order', title: '收據順序', render: (row: ArcCase) => <input className="mini-input number" value={draftFor(row).receipt_order} onChange={(e) => changeReceiptOrder(row, e.target.value)} /> },
+    { key: 'date', title: '領件日', render: (row: ArcCase) => <input type="date" className="mini-input date" value={draftFor(row).expected_pickup_date} onChange={(e) => changeExpectedPickupDate(row, e.target.value)} /> },
     { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal compact-actions fax-row-actions"><button className="secondary-button mini" onClick={() => addPlan(row)}>加入預計</button><button className="primary-button mini" onClick={() => singlePickup(row)}>單筆領件</button><button className="secondary-button mini" onClick={() => openPickedUp(row)}>已領件</button></div> }
   ];
 
@@ -356,7 +482,8 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'order', title: '收據順序', render: (row: { plan: FaxPickupItem }) => row.plan.receipt_order },
     { key: 'employer', title: '雇主', className: 'prominent-person-cell', render: (row: { caseRow: ArcCase }) => row.caseRow.employer_name },
     { key: 'worker', title: '工人', className: 'prominent-person-cell', render: (row: { caseRow: ArcCase }) => row.caseRow.worker_name },
-    { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name }
+    { key: 'handler', title: '承辦', render: (row: { caseRow: ArcCase }) => row.caseRow.handler_name },
+    { key: 'action', title: '操作', render: (row: { plan: FaxPickupItem; caseRow: ArcCase }) => <button className="danger-link" onClick={() => removePlan(row)}>移除</button> }
   ];
 
   const recordColumns = [
@@ -382,6 +509,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
         <div className="fax-card-head">
           <h2>移民署傳真領件</h2>
           <strong className="red-reminder">收據順序請寫在領件單右上角!</strong>
+          <button type="button" className="secondary-button" onClick={addFilledDraftsToPlan}>已填入資訊的一鍵加入預計</button>
         </div>
         <div className="search-toolbar">
           <SearchInput id="faxPickupSearch" value={keyword} onCommit={setKeyword} placeholder="雇主 / 工人 / 團號 / 收件編號 / 外字五碼搜尋" />

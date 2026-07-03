@@ -22,7 +22,7 @@ import type { PageKey } from './types';
 import { canAccessPage } from './utils/permissions';
 
 export function App() {
-  const { loading: authLoading, profile, signOut } = useAuth();
+  const { loading: authLoading, profile, signOut, changeOwnPassword } = useAuth();
   const { pushToast } = useToast();
   const [currentPage, setCurrentPage] = useState<PageKey>('dashboard');
   const lastBlockedPageRef = useRef<PageKey | null>(null);
@@ -69,7 +69,7 @@ export function App() {
   }
 
   return (
-    <AppShell currentPage={currentPage} setCurrentPage={setCurrentPage} profile={profile} onSignOut={signOut}>
+    <AppShell currentPage={currentPage} setCurrentPage={setCurrentPage} profile={profile} onSignOut={signOut} onChangeOwnPassword={changeOwnPassword}>
       {loading ? <div className="page-loader">資料同步中...</div> : null}
       {renderPage()}
     </AppShell>
