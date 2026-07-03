@@ -1001,17 +1001,27 @@ export async function addFaxPickupPlan(params: {
   paymentDate?: string;
 }) {
   const { caseRow, receiptNo, foreignNoLast5, receiptOrder, faxDate, expectedPickupDate, data, actor, oldCardChecked, handlerLast4, paymentDate } = params;
-  const duplicateOrder = data.faxPickupItems.find((item) =>
+  const normalizedOrder = Number(String(receiptOrder ?? '').trim());
+  const validPendingItems = data.faxPickupItems.filter((item) =>
     item.status === 'pending' &&
+    !item.deleted_at &&
     item.expected_pickup_date === expectedPickupDate &&
-    Number(item.receipt_order) === Number(receiptOrder) &&
-    item.case_id !== caseRow.id
+    Number(item.receipt_order || 0) > 0
+  );
+  const duplicateOrder = validPendingItems.find((item) =>
+    Number(item.receipt_order) === normalizedOrder &&
+    String(item.case_id) !== String(caseRow.id)
   );
   if (duplicateOrder) {
-    const used = Math.max(...data.faxPickupItems
-      .filter((item) => item.status === 'pending' && item.expected_pickup_date === expectedPickupDate)
-      .map((item) => Number(item.receipt_order || 0)), 0);
-    throw new Error(`此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${used + 1} 號。`);
+    const usedOrders = validPendingItems
+      .filter((item) => String(item.case_id) !== String(caseRow.id))
+      .map((item) => Number(item.receipt_order || 0))
+      .filter((item) => Number.isInteger(item) && item > 0);
+    const used = Math.max(...usedOrders, normalizedOrder, 0);
+    const usedSet = new Set(usedOrders);
+    let suggested = 1;
+    while (usedSet.has(suggested)) suggested += 1;
+    throw new Error(`此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${suggested} 號。`);
   }
   const existing = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
   const payload = {

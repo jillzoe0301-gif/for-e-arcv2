@@ -84,33 +84,78 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     return value.trim().replace(/\D/g, '').slice(0, 4);
   }
 
-  function sameDayReceiptOrders(expectedPickupDate: string, excludeCaseId?: string) {
-    const orders = data.faxPickupItems
-      .filter((item) => item.status === 'pending' && !item.deleted_at && item.expected_pickup_date === expectedPickupDate && item.case_id !== excludeCaseId)
-      .map((item) => Number(item.receipt_order || 0))
-      .filter((order) => order > 0);
-    for (const [caseId, draft] of Object.entries(drafts)) {
-      if (caseId === excludeCaseId) continue;
-      const draftCase = data.cases.find((item) => item.id === caseId);
-      if (!draftCase) continue;
-      if (!['pending_pickup', 'not_received'].includes(draftCase.status)) continue;
-      if (pendingPlanCaseIds.has(caseId)) continue;
-      if ((draft.expected_pickup_date || nextWeekThursday()) !== expectedPickupDate) continue;
-      const order = Number(draft.receipt_order || 0);
-      if (Number.isInteger(order) && order > 0) orders.push(order);
-    }
-    return orders;
+  function normalizePickupDateValue(value?: string | null) {
+    if (!value) return '';
+    return parseDateLoose(value) ?? String(value).slice(0, 10);
   }
 
-  function receiptOrderDuplicateMessage(caseId: string, expectedPickupDate: string, receiptOrder: number) {
-    const orders = sameDayReceiptOrders(expectedPickupDate, caseId);
-    const duplicate = orders.includes(Number(receiptOrder));
+  function normalizeReceiptOrderValue(value: unknown) {
+    const text = String(value ?? '').trim();
+    if (!/^\d+$/.test(text)) return '';
+    const order = Number(text);
+    if (!Number.isInteger(order) || order <= 0) return '';
+    return String(order);
+  }
+
+  function getUsedReceiptOrdersByDate(expectedPickupDate: string, currentCaseId?: string) {
+    const targetDate = normalizePickupDateValue(expectedPickupDate);
+    const used: Array<{ pickupDate: string; receiptOrder: string; caseId: string; source: string; status: string; fieldName: string }> = [];
+    if (!targetDate) return used;
+
+    data.faxPickupItems
+      .filter((item) => item.status === 'pending' && !item.deleted_at)
+      .forEach((item) => {
+        const itemDate = normalizePickupDateValue(item.expected_pickup_date);
+        const order = normalizeReceiptOrderValue(item.receipt_order);
+        if (!itemDate || !order || itemDate !== targetDate) return;
+        if (String(item.case_id) === String(currentCaseId ?? '')) return;
+        const caseRow = data.cases.find((row) => row.id === item.case_id);
+        if (caseRow && !['pending_pickup', 'not_received'].includes(caseRow.status)) return;
+        used.push({
+          pickupDate: itemDate,
+          receiptOrder: order,
+          caseId: item.case_id,
+          source: '預計領件區',
+          status: item.status,
+          fieldName: 'receipt_order'
+        });
+      });
+
+    Object.entries(drafts).forEach(([caseId, draft]) => {
+      if (String(caseId) === String(currentCaseId ?? '')) return;
+      const draftCase = data.cases.find((row) => row.id === caseId);
+      if (!draftCase) return;
+      if (!['pending_pickup', 'not_received'].includes(draftCase.status)) return;
+      if (pendingPlanCaseIds.has(caseId)) return;
+      const draftDate = normalizePickupDateValue(draft.expected_pickup_date || nextWeekThursday());
+      const order = normalizeReceiptOrderValue(draft.receipt_order);
+      if (!draftDate || !order || draftDate !== targetDate) return;
+      used.push({
+        pickupDate: draftDate,
+        receiptOrder: order,
+        caseId,
+        source: '移民署傳真領件目前輸入',
+        status: draftCase.status,
+        fieldName: 'receipt_order'
+      });
+    });
+
+    return used;
+  }
+
+  function receiptOrderDuplicateMessage(caseId: string, expectedPickupDate: string, receiptOrder: number | string) {
+    const order = normalizeReceiptOrderValue(receiptOrder);
+    if (!order) return '';
+    const used = getUsedReceiptOrdersByDate(expectedPickupDate, caseId);
+    const duplicate = used.find((item) => item.receiptOrder === order && String(item.caseId) !== String(caseId));
     if (!duplicate) return '';
-    const used = Math.max(...orders, Number(receiptOrder), 0);
-    const usedSet = new Set(orders);
+    console.table(used);
+    const numericOrders = used.map((item) => Number(item.receiptOrder)).filter((item) => Number.isInteger(item) && item > 0);
+    const maxOrder = Math.max(...numericOrders, Number(order), 0);
+    const usedSet = new Set(numericOrders);
     let suggested = 1;
-    while (usedSet.has(suggested) || suggested === Number(receiptOrder)) suggested += 1;
-    return `此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${suggested} 號。`;
+    while (usedSet.has(suggested)) suggested += 1;
+    return `此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${maxOrder} 號。建議使用第 ${suggested} 號。`;
   }
 
   function validateReceiptOrder(caseRow: ArcCase, expectedPickupDate: string, receiptOrder: number) {
@@ -249,34 +294,29 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   }
 
   async function addFilledDraftsToPlan() {
-    const reserved = new Map<string, Set<number>>();
-    data.faxPickupItems.filter((item) => item.status === 'pending').forEach((item) => {
-      const key = item.expected_pickup_date;
-      const set = reserved.get(key) ?? new Set<number>();
-      set.add(Number(item.receipt_order || 0));
-      reserved.set(key, set);
-    });
+    const reservedThisRun = new Map<string, Set<string>>();
     let success = 0;
     let skipped = 0;
     for (const caseRow of readyCases) {
       const draft = draftFor(caseRow);
       const paymentDate = parseDateLoose(draft.payment_date);
       const expectedPickupDate = draft.expected_pickup_date || planDate || nextWeekThursday();
-      const order = Number(draft.receipt_order || 0);
+      const orderText = normalizeReceiptOrderValue(draft.receipt_order);
       const requiredFilled = Boolean(draft.receipt_no.trim() && draft.foreign_no_last5.trim() && draft.receipt_order.trim());
-      const set = reserved.get(expectedPickupDate) ?? new Set<number>();
-      if (!requiredFilled || !paymentDate || !Number.isInteger(order) || order <= 0 || set.has(order)) {
+      const reservedForDate = reservedThisRun.get(expectedPickupDate) ?? new Set<string>();
+      const duplicateMessage = orderText ? receiptOrderDuplicateMessage(caseRow.id, expectedPickupDate, orderText) : '';
+      if (!requiredFilled || !paymentDate || !orderText || duplicateMessage || reservedForDate.has(orderText)) {
         skipped += 1;
         continue;
       }
-      set.add(order);
-      reserved.set(expectedPickupDate, set);
+      reservedForDate.add(orderText);
+      reservedThisRun.set(expectedPickupDate, reservedForDate);
       try {
         await addFaxPickupPlan({
           caseRow,
           receiptNo: draft.receipt_no.trim(),
           foreignNoLast5: draft.foreign_no_last5.trim(),
-          receiptOrder: order,
+          receiptOrder: Number(orderText),
           faxDate: draft.fax_date || todayTaipei(),
           expectedPickupDate,
           data,
