@@ -121,72 +121,13 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     return String(order);
   }
 
-  function getUsedReceiptOrdersByDate(expectedPickupDate: string, currentCaseId?: string) {
-    const targetDate = normalizePickupDateValue(expectedPickupDate);
-    const used: Array<{ pickupDate: string; receiptOrder: string; caseId: string; source: string; status: string; fieldName: string }> = [];
-    if (!targetDate) return used;
-
-    activePendingPlans
-      .forEach((item) => {
-        const itemDate = normalizePickupDateValue(item.expected_pickup_date);
-        const order = normalizeReceiptOrderValue(item.receipt_order);
-        if (!itemDate || !order || itemDate !== targetDate) return;
-        if (String(item.case_id) === String(currentCaseId ?? '')) return;
-        const caseRow = data.cases.find((row) => row.id === item.case_id);
-        if (caseRow && !['pending_pickup', 'not_received'].includes(caseRow.status)) return;
-        used.push({
-          pickupDate: itemDate,
-          receiptOrder: order,
-          caseId: item.case_id,
-          source: '預計領件區',
-          status: item.status,
-          fieldName: 'receipt_order'
-        });
-      });
-
-    Object.entries(drafts).forEach(([caseId, draft]) => {
-      if (String(caseId) === String(currentCaseId ?? '')) return;
-      const draftCase = data.cases.find((row) => row.id === caseId);
-      if (!draftCase) return;
-      if (!['pending_pickup', 'not_received'].includes(draftCase.status)) return;
-      if (pendingPlanCaseIds.has(caseId)) return;
-      const draftDate = normalizePickupDateValue(draft.expected_pickup_date || nextWeekThursday());
-      const order = normalizeReceiptOrderValue(draft.receipt_order);
-      if (!draftDate || !order || draftDate !== targetDate) return;
-      used.push({
-        pickupDate: draftDate,
-        receiptOrder: order,
-        caseId,
-        source: '移民署傳真領件目前輸入',
-        status: draftCase.status,
-        fieldName: 'receipt_order'
-      });
-    });
-
-    return used;
+  // V13.44：收據順序不再做任何重複限制。
+  // 仍保留數字格式清理與排序用途，但不阻擋同日相同序號。
+  function receiptOrderDuplicateMessage(_caseId: string, _expectedPickupDate: string, _receiptOrder: number | string) {
+    return '';
   }
 
-  function receiptOrderDuplicateMessage(caseId: string, expectedPickupDate: string, receiptOrder: number | string) {
-    const order = normalizeReceiptOrderValue(receiptOrder);
-    if (!order) return '';
-    const used = getUsedReceiptOrdersByDate(expectedPickupDate, caseId);
-    const duplicate = used.find((item) => item.receiptOrder === order && String(item.caseId) !== String(caseId));
-    if (!duplicate) return '';
-    console.table(used);
-    const numericOrders = used.map((item) => Number(item.receiptOrder)).filter((item) => Number.isInteger(item) && item > 0);
-    const maxOrder = Math.max(...numericOrders, Number(order), 0);
-    const usedSet = new Set(numericOrders);
-    let suggested = 1;
-    while (usedSet.has(suggested)) suggested += 1;
-    return `此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${maxOrder} 號。建議使用第 ${suggested} 號。`;
-  }
-
-  function validateReceiptOrder(caseRow: ArcCase, expectedPickupDate: string, receiptOrder: number) {
-    const message = receiptOrderDuplicateMessage(caseRow.id, expectedPickupDate, receiptOrder);
-    if (message) {
-      pushToast({ type: 'warning', title: '收據順序重複', message });
-      return false;
-    }
+  function validateReceiptOrder(_caseRow: ArcCase, _expectedPickupDate: string, _receiptOrder: number) {
     return true;
   }
 
@@ -198,13 +139,8 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   function validateReceiptOrderOnBlur(caseRow: ArcCase) {
     const draft = draftFor(caseRow);
     const order = normalizeReceiptOrderValue(draft.receipt_order);
-    if (!order) return;
-    const expectedDate = draft.expected_pickup_date || nextWeekThursday();
-    const message = receiptOrderDuplicateMessage(caseRow.id, expectedDate, order);
-    if (message) {
-      pushToast({ type: 'warning', title: '收據順序重複', message });
-      setDraft(caseRow.id, 'receipt_order', '');
-    }
+    if (draft.receipt_order && !order) setDraft(caseRow.id, 'receipt_order', '');
+    if (order) setDraft(caseRow.id, 'receipt_order', order);
   }
 
   async function saveCopyCount(caseRow: ArcCase) {
@@ -222,33 +158,10 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
 
   function changeExpectedPickupDate(caseRow: ArcCase, value: string) {
     const nextDate = value || nextWeekThursday();
-    const currentOrder = Number(draftFor(caseRow).receipt_order || 0);
     setDraft(caseRow.id, 'expected_pickup_date', nextDate);
-    if (currentOrder > 0) {
-      const message = receiptOrderDuplicateMessage(caseRow.id, nextDate, currentOrder);
-      if (message) {
-        pushToast({ type: 'warning', title: '收據順序重複', message });
-        setDraft(caseRow.id, 'receipt_order', '');
-      }
-    }
   }
 
-  function validatePlannedReceiptOrders(plans: FaxPickupItem[]) {
-    const grouped = new Map<string, number[]>();
-    for (const plan of plans) {
-      const key = plan.expected_pickup_date;
-      grouped.set(key, [...(grouped.get(key) ?? []), Number(plan.receipt_order || 0)]);
-    }
-    for (const [date, orders] of grouped.entries()) {
-      const seen = new Set<number>();
-      const duplicate = orders.find((order) => order > 0 && seen.size === seen.add(order).size);
-      if (duplicate) {
-        const used = Math.max(...orders, 0);
-        pushToast({ type: 'warning', title: '收據順序重複', message: `此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${used + 1} 號。` });
-        return false;
-      }
-      void date;
-    }
+  function validatePlannedReceiptOrders(_plans: FaxPickupItem[]) {
     return true;
   }
 
@@ -322,7 +235,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       setPlanDate(expectedPickupDate);
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '加入失敗', message: errorMessage(err, '請檢查收據順序是否重複') });
+      pushToast({ type: 'error', title: '加入失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 
@@ -335,7 +248,6 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   }
 
   async function addFilledDraftsToPlan() {
-    const reservedThisRun = new Map<string, Set<string>>();
     let success = 0;
     let skipped = 0;
     for (const caseRow of readyCases) {
@@ -345,14 +257,10 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       const orderText = normalizeReceiptOrderValue(draft.receipt_order);
       const copyText = normalizeCopyCount(draft.copy_count || '1');
       const requiredFilled = Boolean(draft.receipt_no.trim() && draft.foreign_no_last5.trim() && draft.receipt_order.trim());
-      const reservedForDate = reservedThisRun.get(expectedPickupDate) ?? new Set<string>();
-      const duplicateMessage = orderText ? receiptOrderDuplicateMessage(caseRow.id, expectedPickupDate, orderText) : '';
-      if (!requiredFilled || !paymentDate || !orderText || !copyText || duplicateMessage || reservedForDate.has(orderText)) {
+      if (!requiredFilled || !paymentDate || !orderText || !copyText) {
         skipped += 1;
         continue;
       }
-      reservedForDate.add(orderText);
-      reservedThisRun.set(expectedPickupDate, reservedForDate);
       try {
         await addFaxPickupPlan({
           caseRow,
@@ -373,7 +281,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
         skipped += 1;
       }
     }
-    pushToast({ type: success ? 'success' : 'warning', title: '一鍵加入預計完成', message: `已成功加入 ${success} 筆，${skipped} 筆因資料未填完整或收據順序重複未加入。` });
+    pushToast({ type: success ? 'success' : 'warning', title: '一鍵加入預計完成', message: `已成功加入 ${success} 筆，${skipped} 筆因資料未填完整未加入。` });
     await reload();
   }
 
@@ -381,7 +289,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     if (!window.confirm('確定要將此案件移出預計領件區嗎？移除後會回到移民署傳真領件。')) return;
     try {
       await removeFaxPickupPlan({ plan: row.plan, caseRow: row.caseRow, actor: profile });
-      pushToast({ type: 'success', title: '已移出預計領件區', message: '案件已回到移民署傳真領件，原收據順序已釋放。' });
+      pushToast({ type: 'success', title: '已移出預計領件區', message: '案件已回到移民署傳真領件。' });
       setSelectedPlanIds((current) => current.filter((id) => id !== row.plan.id));
       setDrafts((current) => ({
         ...current,

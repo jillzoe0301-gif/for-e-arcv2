@@ -578,7 +578,7 @@ on conflict do nothing;
 insert into public.arc_settings(setting_group, setting_key, setting_value, is_enabled)
 values
   ('reminders', 'weekly', '{"monday":"週一繳費","tuesday":"週二傳真","thursday":"週四領件","paymentNote":"乾坤、灃禾繳費前請先與財務確認。","enabled":true,"color":"#F4AE52","fontSize":18}'::jsonb, true),
-  ('fax_pickup', 'rules', '{"defaultPickupRule":"next_week_thursday","receiptOrderRequired":true,"receiptOrderUnique":true,"printBrokerName":"","printPhone":""}'::jsonb, true),
+  ('fax_pickup', 'rules', '{"defaultPickupRule":"next_week_thursday","receiptOrderRequired":true,"receiptOrderUnique":false,"printBrokerName":"","printPhone":""}'::jsonb, true),
   ('print', 'fields', '{"faxFields":["編號","收費日期","收件編號","IC 卡","張數","經手人後四碼","外字五碼","舊卡","雇主","工人","承辦","收據順序"],"receiptOrderFontDelta":-1,"footerBrokerName":"__________","footerPhone":"__________","footerHandler":"__________","totalCountMode":"總領件數"}'::jsonb, true)
 on conflict(setting_group, setting_key) do update set setting_value = excluded.setting_value, is_enabled = excluded.is_enabled;
 

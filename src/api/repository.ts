@@ -1014,38 +1014,11 @@ export async function addFaxPickupPlan(params: {
   const normalizedOrder = Number(String(receiptOrder ?? '').trim());
   const normalizedCopyCount = Number(copyCount ?? caseRow.copy_count ?? 1);
   if (!Number.isInteger(normalizedCopyCount) || normalizedCopyCount <= 0) throw new Error('張數格式不正確，請輸入正整數。');
-  const normalizeDateKey = (value: string | null | undefined) => String(value ?? '').slice(0, 10).replace(/\//g, '-');
-  const targetDate = normalizeDateKey(expectedPickupDate);
+  // V13.44：取消收據順序唯一限制。
+  // 收據順序只做數字格式保存，不再因同日同序號阻擋。
 
-  const activeCaseIds = new Set(
-    data.cases
-      .filter((row) => ['pending_pickup', 'not_received'].includes(row.status) && row.pickup_status === 'pending')
-      .map((row) => row.id)
-  );
-
-  const validPendingItems = data.faxPickupItems.filter((item) => {
-    if (item.status !== 'pending' || item.deleted_at) return false;
-    if (normalizeDateKey(item.expected_pickup_date) !== targetDate) return false;
-    const order = Number(item.receipt_order ?? 0);
-    if (!Number.isInteger(order) || order <= 0) return false;
-    if (String(item.case_id) === String(caseRow.id)) return false;
-    return activeCaseIds.has(item.case_id);
-  });
-
-  const duplicateOrder = validPendingItems.find((item) => Number(item.receipt_order) === normalizedOrder);
-  if (duplicateOrder) {
-    const usedOrders = validPendingItems
-      .map((item) => Number(item.receipt_order || 0))
-      .filter((item) => Number.isInteger(item) && item > 0);
-    const used = Math.max(...usedOrders, normalizedOrder, 0);
-    const usedSet = new Set(usedOrders);
-    let suggested = 1;
-    while (usedSet.has(suggested)) suggested += 1;
-    throw new Error(`此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${suggested} 號。`);
-  }
-
-  // 重新移入同一案件時，先釋放同一案件殘留的 pending 暫存鎖。
-  // 這一步只處理「同一案件」舊暫存，不會釋放其他案件真正使用中的收據序號。
+  // 重新移入同一案件時，先取消同一案件殘留的 pending 暫存，避免同一案件重複存在預計領件區。
+  // 不檢查也不鎖定其他案件的收據順序。
   const { error: releaseError } = await supabase
     .from('fax_pickup_items')
     .update({ status: 'cancelled', deleted_at: new Date().toISOString(), updated_by: actor?.id })
@@ -1142,7 +1115,7 @@ export async function removeFaxPickupPlan(params: {
     new_data: {
       狀態: '待加入預計領件',
       流向: '回到移民署傳真領件',
-      收據順序: '已釋放',
+      收據順序: '不限制重複',
       預設領件日: defaultNextPickupDate
     },
     reason: '從預計領件區移除，案件回到移民署傳真領件待處理區。'
