@@ -1015,21 +1015,26 @@ export async function addFaxPickupPlan(params: {
   const normalizedCopyCount = Number(copyCount ?? caseRow.copy_count ?? 1);
   if (!Number.isInteger(normalizedCopyCount) || normalizedCopyCount <= 0) throw new Error('張數格式不正確，請輸入正整數。');
   const normalizeDateKey = (value: string | null | undefined) => String(value ?? '').slice(0, 10).replace(/\//g, '-');
+  const targetDate = normalizeDateKey(expectedPickupDate);
+
+  const activeCaseIds = new Set(
+    data.cases
+      .filter((row) => ['pending_pickup', 'not_received'].includes(row.status) && row.pickup_status === 'pending')
+      .map((row) => row.id)
+  );
+
   const validPendingItems = data.faxPickupItems.filter((item) => {
     if (item.status !== 'pending' || item.deleted_at) return false;
-    if (normalizeDateKey(item.expected_pickup_date) !== normalizeDateKey(expectedPickupDate)) return false;
-    if (Number(item.receipt_order || 0) <= 0) return false;
-    const itemCase = data.cases.find((row) => row.id === item.case_id);
-    if (!itemCase) return false;
-    return ['pending_pickup', 'not_received'].includes(itemCase.status) && itemCase.pickup_status === 'pending';
+    if (normalizeDateKey(item.expected_pickup_date) !== targetDate) return false;
+    const order = Number(item.receipt_order ?? 0);
+    if (!Number.isInteger(order) || order <= 0) return false;
+    if (String(item.case_id) === String(caseRow.id)) return false;
+    return activeCaseIds.has(item.case_id);
   });
-  const duplicateOrder = validPendingItems.find((item) =>
-    Number(item.receipt_order) === normalizedOrder &&
-    String(item.case_id) !== String(caseRow.id)
-  );
+
+  const duplicateOrder = validPendingItems.find((item) => Number(item.receipt_order) === normalizedOrder);
   if (duplicateOrder) {
     const usedOrders = validPendingItems
-      .filter((item) => String(item.case_id) !== String(caseRow.id))
       .map((item) => Number(item.receipt_order || 0))
       .filter((item) => Number.isInteger(item) && item > 0);
     const used = Math.max(...usedOrders, normalizedOrder, 0);
@@ -1038,12 +1043,22 @@ export async function addFaxPickupPlan(params: {
     while (usedSet.has(suggested)) suggested += 1;
     throw new Error(`此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${suggested} 號。`);
   }
-  const existing = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending' && !item.deleted_at);
+
+  // 重新移入同一案件時，先釋放同一案件殘留的 pending 暫存鎖。
+  // 這一步只處理「同一案件」舊暫存，不會釋放其他案件真正使用中的收據序號。
+  const { error: releaseError } = await supabase
+    .from('fax_pickup_items')
+    .update({ status: 'cancelled', deleted_at: new Date().toISOString(), updated_by: actor?.id })
+    .eq('case_id', caseRow.id)
+    .eq('status', 'pending')
+    .is('deleted_at', null);
+  if (releaseError) throw releaseError;
+
   const payload = {
     case_id: caseRow.id,
     receipt_no: receiptNo,
     foreign_no_last5: foreignNoLast5,
-    receipt_order: receiptOrder,
+    receipt_order: normalizedOrder,
     copy_count: normalizedCopyCount,
     old_card_checked: oldCardChecked ?? caseRow.old_card_checked ?? false,
     handler_last4: handlerLast4 !== undefined ? handlerLast4.trim().replace(/\D/g, '').slice(0, 4) : (caseRow.handler_last4 ?? null),
@@ -1052,13 +1067,8 @@ export async function addFaxPickupPlan(params: {
     status: 'pending',
     updated_by: actor?.id
   };
-  if (existing) {
-    const { error } = await supabase.from('fax_pickup_items').update(payload).eq('id', existing.id);
-    if (error) throw error;
-  } else {
-    const { error } = await supabase.from('fax_pickup_items').insert({ ...payload, created_by: actor?.id });
-    if (error) throw error;
-  }
+  const { error } = await supabase.from('fax_pickup_items').insert({ ...payload, created_by: actor?.id });
+  if (error) throw error;
   const { error: caseError } = await supabase.from('arc_cases').update({
     receipt_no: receiptNo,
     foreign_no_last5: foreignNoLast5,
@@ -1080,7 +1090,7 @@ export async function addFaxPickupPlan(params: {
     actor_name: actor?.display_name,
     page_name: '傳真/領件',
     record_table: 'fax_pickup_items',
-    record_id: existing?.id,
+    record_id: caseRow.id,
     new_data: payload
   });
 }

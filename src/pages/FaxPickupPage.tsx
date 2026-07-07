@@ -34,6 +34,12 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { label: '週四領件', today: weekday === 4 }
   ];
 
+  function errorMessage(err: unknown, fallback: string) {
+    if (err instanceof Error) return err.message;
+    if (err && typeof err === 'object' && 'message' in err) return String((err as { message?: unknown }).message ?? fallback);
+    return fallback;
+  }
+
   function isActivePendingPlan(item: FaxPickupItem) {
     if (item.status !== 'pending' || item.deleted_at) return false;
     const caseRow = data.cases.find((row) => row.id === item.case_id);
@@ -251,7 +257,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       await updateCaseFaxOptions({ caseRow, actor: profile, ...patch });
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '欄位更新失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+      pushToast({ type: 'error', title: '欄位更新失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 
@@ -316,7 +322,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       setPlanDate(expectedPickupDate);
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '加入失敗', message: err instanceof Error ? err.message : '請檢查收據順序是否重複' });
+      pushToast({ type: 'error', title: '加入失敗', message: errorMessage(err, '請檢查收據順序是否重複') });
     }
   }
 
@@ -394,7 +400,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       setPlanDate(nextWeekThursday());
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '移除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+      pushToast({ type: 'error', title: '移除失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 
@@ -408,7 +414,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       setSelectedPlanIds([]);
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '建立紀錄失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+      pushToast({ type: 'error', title: '建立紀錄失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 
@@ -446,7 +452,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       pushToast({ type: 'success', title: '單筆領件已建立' });
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '單筆領件失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+      pushToast({ type: 'error', title: '單筆領件失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 
@@ -474,7 +480,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       setPickedUpDate(todayTaipei());
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '已領件失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+      pushToast({ type: 'error', title: '已領件失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 
@@ -534,7 +540,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       pushToast({ type: 'success', title: '已標記本次未領到' });
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '更新失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+      pushToast({ type: 'error', title: '更新失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 
@@ -547,7 +553,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       setDeleteReason('');
       await reload();
     } catch (err) {
-      pushToast({ type: 'error', title: '刪除失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+      pushToast({ type: 'error', title: '刪除失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
 

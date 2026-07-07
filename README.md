@@ -1,44 +1,10 @@
-# ARC V13.43.2 更新說明
+# ARC V13.43.3
 
-本版修正傳真/領件收據序號誤判重複：
+修正收據序號重新移入後仍被舊暫存占用的問題。
 
-- 收據序號只依「同一領件日 + 收據序號 + 不同案件」判斷重複。
-- 防重判斷不讀取張數、IC卡、經手人後四碼、收件編號、外字五碼等其他數字欄位。
-- 已從預計領件區移除、已作廢、已刪除、或已回到移民署傳真領件的舊紀錄不再占用序號。
-- 重新移入待領件的案件，原本 14、15 號移出後可再次使用 14、15 號。
-- 預計領件區顯示與防重判斷統一只看有效 pending 且案件 pickup_status 為 pending 的資料。
-- 首頁版本更新為 ARC V13.43.2。
-
-## 需要執行 SQL
-
-請先在 Supabase SQL Editor 執行：
-
-```txt
-supabase/migrations/202607030014_arc_v13_v43_2_receipt_order_release_fix.sql
-```
-
-## 部署指令
-
-```bash
-ls -la arc-v13-formal-v43-2-receipt-order-release-update.zip
-
-printf "\n.env\n.env.local\nnode_modules\ndist\n*.zip\ntsconfig.tsbuildinfo\n*.tsbuildinfo\n" >> .gitignore
-
-rm -rf src public supabase scripts dist node_modules
-rm -f package-lock.json package.json index.html tsconfig.json vite.config.ts README.md BUILD_CHECK.txt
-
-unzip -o arc-v13-formal-v43-2-receipt-order-release-update.zip
-
-test -f package.json && echo "package.json OK"
-test -f src/pages/FaxPickupPage.tsx && echo "傳真領件 OK"
-test -f src/api/repository.ts && echo "repository OK"
-test -f supabase/migrations/202607030014_arc_v13_v43_2_receipt_order_release_fix.sql && echo "SQL OK"
-
-npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
-npm run build
-
-git status
-git add -A
-git commit -m "update ARC V13.43.2 receipt order release fix"
-git push origin main
-```
+重點：
+- 收據序號只依「同一領件日 + 收據序號 + 不同案件」判斷。
+- 重新移入同一案件前，會先釋放同一案件殘留的 pending 暫存鎖。
+- 移除所有 fax_pickup_items 上 expected_pickup_date + receipt_order 的唯一索引/約束，改用非唯一查詢索引。
+- 已移出、已取消、已作廢、案件主檔不再有效的暫存資料不再占用收據序號。
+- 若新增仍失敗，錯誤訊息會顯示 Supabase 回傳的實際原因，方便查出是否還有資料庫殘留限制。
