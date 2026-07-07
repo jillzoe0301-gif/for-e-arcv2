@@ -20,7 +20,8 @@ const emptyRow: BatchCaseRow = {
   application_date: todayTaipei(),
   group_no: '',
   application_item_id: '',
-  amount: ''
+  amount: '',
+  copy_count: '1'
 };
 
 const batchColumns: Array<{ key: keyof BatchCaseRow; label: string; type?: string }> = [
@@ -32,7 +33,8 @@ const batchColumns: Array<{ key: keyof BatchCaseRow; label: string; type?: strin
   { key: 'application_date', label: '申請日' },
   { key: 'group_no', label: '團號' },
   { key: 'application_item_id', label: '申請項目' },
-  { key: 'amount', label: '金額' }
+  { key: 'amount', label: '金額' },
+  { key: 'copy_count', label: '張數' }
 ];
 
 type BatchFill = Pick<BatchCaseRow, 'handler_name' | 'broker_id' | 'employer_name' | 'entry_date' | 'application_date'>;
@@ -146,6 +148,10 @@ export function CaseRegistrationPage({
       const money = parseMoney(clean);
       return money === null ? clean : String(money);
     }
+    if (key === 'copy_count') {
+      const count = Number(clean.replace(/,/g, ''));
+      return Number.isInteger(count) && count > 0 ? String(count) : clean;
+    }
     return clean;
   }
 
@@ -195,11 +201,12 @@ export function CaseRegistrationPage({
     const valid: RegisterCaseInput[] = [];
     const errors = inputRows.map((row) => ({ ...row, error: '' }));
     inputRows.forEach((row, index) => {
-      const hasAny = Object.entries(row).some(([key, value]) => key !== 'error' && String(value ?? '').trim());
+      const hasAny = Object.entries(row).some(([key, value]) => key !== 'error' && key !== 'copy_count' && String(value ?? '').trim());
       if (!hasAny) return;
       const entryDate = row.entry_date ? parseDateLoose(row.entry_date) : null;
       const applicationDate = parseDateLoose(row.application_date);
       const money = parseMoney(row.amount);
+      const copyCount = String(row.copy_count ?? '').trim() ? Number(String(row.copy_count).trim().replace(/,/g, '')) : 1;
       if (!applicationDate) {
         errors[index].error = DATE_ERROR;
         return;
@@ -230,6 +237,10 @@ export function CaseRegistrationPage({
         errors[index].error = '金額格式錯誤';
         return;
       }
+      if (!Number.isInteger(copyCount) || copyCount <= 0) {
+        errors[index].error = '張數格式不正確，請輸入正整數。';
+        return;
+      }
       valid.push({
         handler_name: row.handler_name.trim(),
         broker_id: row.broker_id,
@@ -239,11 +250,13 @@ export function CaseRegistrationPage({
         application_date: applicationDate,
         group_no: groupNo,
         application_item_id: row.application_item_id,
-        amount: money
+        amount: money,
+        copy_count: copyCount
       });
       errors[index].entry_date = entryDate ?? '';
       errors[index].application_date = applicationDate;
       errors[index].amount = String(money);
+      errors[index].copy_count = String(copyCount);
     });
     return { valid, errors };
   }

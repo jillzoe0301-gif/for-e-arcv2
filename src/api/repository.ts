@@ -919,9 +919,10 @@ export async function updateCaseFaxOptions(params: {
   oldCardChecked?: boolean;
   handlerLast4?: string;
   paymentDate?: string;
+  copyCount?: number;
   actor: Profile | null;
 }) {
-  const { caseRow, oldCardChecked, handlerLast4, paymentDate, actor } = params;
+  const { caseRow, oldCardChecked, handlerLast4, paymentDate, copyCount, actor } = params;
   const patch: Partial<ArcCase> & { updated_by?: string } = { updated_by: actor?.id };
   const oldData: Record<string, unknown> = { 案件編號: caseRow.case_no };
   const newData: Record<string, unknown> = { 案件編號: caseRow.case_no };
@@ -943,11 +944,19 @@ export async function updateCaseFaxOptions(params: {
     oldData.原收費日期 = caseRow.payment_date ?? '';
     newData.修改後收費日期 = paymentDate;
   }
+  if (copyCount !== undefined) {
+    if (!Number.isInteger(copyCount) || copyCount <= 0) throw new Error('張數格式不正確，請輸入正整數。');
+    if (copyCount !== Number(caseRow.copy_count ?? 1)) {
+      patch.copy_count = copyCount;
+      oldData.原張數 = caseRow.copy_count ?? 1;
+      newData.新張數 = copyCount;
+    }
+  }
   if (Object.keys(patch).length <= 1) return;
   const { error } = await supabase.from('arc_cases').update(patch).eq('id', caseRow.id);
   if (error) throw error;
   await addAudit({
-    action_type: paymentDate !== undefined && oldCardChecked === undefined && handlerLast4 === undefined ? '收費日期修改' : oldCardChecked !== undefined && handlerLast4 === undefined && paymentDate === undefined ? '舊卡狀態修改' : handlerLast4 !== undefined && oldCardChecked === undefined && paymentDate === undefined ? '經手人後四碼修改' : '傳真領件欄位修改',
+    action_type: paymentDate !== undefined && oldCardChecked === undefined && handlerLast4 === undefined && copyCount === undefined ? '收費日期修改' : oldCardChecked !== undefined && handlerLast4 === undefined && paymentDate === undefined && copyCount === undefined ? '舊卡狀態修改' : handlerLast4 !== undefined && oldCardChecked === undefined && paymentDate === undefined && copyCount === undefined ? '經手人後四碼修改' : copyCount !== undefined && oldCardChecked === undefined && handlerLast4 === undefined && paymentDate === undefined ? '張數修改' : '傳真領件欄位修改',
     actor_id: actor?.id,
     actor_name: actor?.display_name,
     page_name: '傳真/領件',
@@ -999,9 +1008,12 @@ export async function addFaxPickupPlan(params: {
   oldCardChecked?: boolean;
   handlerLast4?: string;
   paymentDate?: string;
+  copyCount?: number;
 }) {
-  const { caseRow, receiptNo, foreignNoLast5, receiptOrder, faxDate, expectedPickupDate, data, actor, oldCardChecked, handlerLast4, paymentDate } = params;
+  const { caseRow, receiptNo, foreignNoLast5, receiptOrder, faxDate, expectedPickupDate, data, actor, oldCardChecked, handlerLast4, paymentDate, copyCount } = params;
   const normalizedOrder = Number(String(receiptOrder ?? '').trim());
+  const normalizedCopyCount = Number(copyCount ?? caseRow.copy_count ?? 1);
+  if (!Number.isInteger(normalizedCopyCount) || normalizedCopyCount <= 0) throw new Error('張數格式不正確，請輸入正整數。');
   const validPendingItems = data.faxPickupItems.filter((item) =>
     item.status === 'pending' &&
     !item.deleted_at &&
@@ -1029,6 +1041,7 @@ export async function addFaxPickupPlan(params: {
     receipt_no: receiptNo,
     foreign_no_last5: foreignNoLast5,
     receipt_order: receiptOrder,
+    copy_count: normalizedCopyCount,
     old_card_checked: oldCardChecked ?? caseRow.old_card_checked ?? false,
     handler_last4: handlerLast4 !== undefined ? handlerLast4.trim().replace(/\D/g, '').slice(0, 4) : (caseRow.handler_last4 ?? null),
     fax_date: faxDate,
@@ -1047,6 +1060,7 @@ export async function addFaxPickupPlan(params: {
     receipt_no: receiptNo,
     foreign_no_last5: foreignNoLast5,
     receipt_order: receiptOrder,
+    copy_count: normalizedCopyCount,
     old_card_checked: oldCardChecked ?? caseRow.old_card_checked ?? false,
     handler_last4: handlerLast4 !== undefined ? handlerLast4.trim().replace(/\D/g, '').slice(0, 4) : (caseRow.handler_last4 ?? null),
     payment_date: paymentDate ?? caseRow.payment_date ?? null,
@@ -1086,12 +1100,12 @@ export async function removeFaxPickupPlan(params: {
   const { error: caseError } = await supabase.from('arc_cases').update({
     status: 'pending_pickup',
     pickup_status: null,
-    receipt_no: plan.receipt_no,
-    foreign_no_last5: plan.foreign_no_last5,
+    receipt_no: null,
+    foreign_no_last5: null,
     receipt_order: null,
-    old_card_checked: plan.old_card_checked ?? caseRow.old_card_checked ?? false,
-    handler_last4: plan.handler_last4 ?? caseRow.handler_last4 ?? null,
-    fax_date: plan.fax_date,
+    old_card_checked: null,
+    handler_last4: null,
+    fax_date: null,
     expected_pickup_date: defaultNextPickupDate,
     updated_by: actor.id
   }).eq('id', caseRow.id);
@@ -1202,6 +1216,7 @@ export async function markPickupNotReceived(params: {
     receipt_no: caseRow.receipt_no ?? '',
     foreign_no_last5: caseRow.foreign_no_last5 ?? '',
     receipt_order: caseRow.receipt_order ?? 0,
+    copy_count: caseRow.copy_count ?? 1,
     old_card_checked: caseRow.old_card_checked ?? false,
     handler_last4: caseRow.handler_last4 ?? null,
     fax_date: caseRow.fax_date ?? todayTaipei(),

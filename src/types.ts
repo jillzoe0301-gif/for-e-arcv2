@@ -121,6 +121,7 @@ export interface ArcCase {
   group_no?: string | null;
   application_item_id: string;
   amount: number;
+  copy_count?: number | null;
   status: CaseStatus;
   payment_batch_id?: string | null;
   payment_date?: string | null;
@@ -199,6 +200,7 @@ export interface FaxPickupItem {
   receipt_no: string;
   foreign_no_last5: string;
   receipt_order: number;
+  copy_count?: number | null;
   old_card_checked?: boolean | null;
   handler_last4?: string | null;
   fax_date: string;
@@ -334,6 +336,7 @@ export interface RegisterCaseInput {
   group_no?: string | null;
   application_item_id: string;
   amount: number;
+  copy_count: number;
 }
 
 export interface BatchCaseRow {
@@ -346,6 +349,7 @@ export interface BatchCaseRow {
   group_no: string;
   application_item_id: string;
   amount: string;
+  copy_count: string;
   error?: string;
 }
 

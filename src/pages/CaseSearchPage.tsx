@@ -28,6 +28,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       caseRow.receipt_no,
       caseRow.foreign_no_last5,
       caseRow.handler_last4,
+      caseRow.copy_count,
       caseRow.old_card_checked ? '舊卡' : ''
     ])), [data.applicationItems, data.cases, keyword, status]);
 
@@ -65,6 +66,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     { key: 'amount', title: '金額', render: (row: ArcCase) => formatMoney(row.amount) },
     { key: 'receipt', title: '收件編號', render: (row: ArcCase) => row.receipt_no ?? '' },
     { key: 'foreign', title: '外字五碼', render: (row: ArcCase) => row.foreign_no_last5 ?? '' },
+    { key: 'copy_count', title: '張數', render: (row: ArcCase) => row.copy_count ?? 1 },
     { key: 'last4', title: '經手人後四碼', render: (row: ArcCase) => row.handler_last4 ?? '' },
     { key: 'old_card', title: '舊卡', render: (row: ArcCase) => (row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? 'V' : '' },
     { key: 'application_date', title: '申請日', render: (row: ArcCase) => formatDate(row.application_date) },
