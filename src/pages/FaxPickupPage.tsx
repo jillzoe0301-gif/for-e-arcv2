@@ -427,7 +427,11 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   function printFaxOnly() {
     const rows = ensurePrintableRows();
     if (!rows) return;
-    printFaxPickupSheet(rows, planDate, printOptions());
+    try {
+      printFaxPickupSheet(rows, planDate, printOptions());
+    } catch (err) {
+      pushToast({ type: 'error', title: '列印失敗', message: errorMessage(err, '請稍後再試') });
+    }
   }
 
   function printSignOnly() {
@@ -439,7 +443,11 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   function printBoth() {
     const rows = ensurePrintableRows();
     if (!rows) return;
-    printFaxAndSignatureSheets(rows, planDate, printOptions());
+    try {
+      printFaxAndSignatureSheets(rows, planDate, printOptions());
+    } catch (err) {
+      pushToast({ type: 'error', title: '列印失敗', message: errorMessage(err, '請稍後再試') });
+    }
   }
 
   async function markNotReceived(entry: { recordItem: PickupRecordItem; caseRow: ArcCase }) {
@@ -498,12 +506,22 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'action', title: '操作', render: (row: { plan: FaxPickupItem; caseRow: ArcCase }) => <button className="danger-link" onClick={() => removePlan(row)}>移除</button> }
   ];
 
+  function totalCopyCountForRecord(record: PickupRecord) {
+    const items = data.pickupRecordItems.filter((item) => item.record_id === record.id);
+    return items.reduce((sum, item) => {
+      const caseRow = data.cases.find((caseEntry) => caseEntry.id === item.case_id);
+      const count = Number(caseRow?.copy_count ?? 1);
+      return sum + (Number.isInteger(count) && count > 0 ? count : 1);
+    }, 0);
+  }
+
   const recordColumns = [
     { key: 'record_no', title: '紀錄編號', render: (row: PickupRecord) => row.record_no },
     { key: 'pickup_date', title: '領件日期', render: (row: PickupRecord) => formatDate(row.pickup_date) },
     { key: 'created_at', title: '建立日期', render: (row: PickupRecord) => formatDate(row.created_at) },
     { key: 'creator', title: '建立人', render: (row: PickupRecord) => row.created_by_name ?? '' },
-    { key: 'count', title: '本次領件案件數', render: (row: PickupRecord) => row.case_count },
+    { key: 'count', title: '本次案件數', render: (row: PickupRecord) => `${row.case_count} 件` },
+    { key: 'totalCopy', title: '本次總張數', render: (row: PickupRecord) => `${row.total_copy_count ?? totalCopyCountForRecord(row)} 張` },
     { key: 'action', title: '操作', render: (row: PickupRecord) => <div className="action-stack horizontal">{canDeletePickupRecord(profile?.role) ? <button className="danger-link" onClick={() => setDeleteTarget(row)}>刪除</button> : null}</div> }
   ];
 

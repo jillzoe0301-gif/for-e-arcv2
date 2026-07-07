@@ -968,6 +968,129 @@ export async function updateCaseFaxOptions(params: {
 }
 
 
+export async function updateCaseFromCaseSearch(params: {
+  caseRow: ArcCase;
+  patch: Partial<ArcCase>;
+  data: ArcData;
+  actor: Profile | null;
+}) {
+  const { caseRow, patch, data, actor } = params;
+  if (!actor) throw new Error('請先登入。');
+
+  const next: Partial<ArcCase> & { updated_by?: string } = { updated_by: actor.id };
+  const changedFields: Array<{ field: string; oldValue: unknown; newValue: unknown }> = [];
+
+  function setField<K extends keyof ArcCase>(key: K, label: string, value: ArcCase[K] | undefined) {
+    if (value === undefined) return;
+    const oldValue = caseRow[key] ?? null;
+    const newValue = value ?? null;
+    if (String(oldValue ?? '') !== String(newValue ?? '')) {
+      next[key] = value as never;
+      changedFields.push({ field: label, oldValue, newValue });
+    }
+  }
+
+  setField('handler_name', '承辦', patch.handler_name?.trim() as never);
+  setField('broker_id', '仲介', patch.broker_id as never);
+  setField('employer_name', '雇主', patch.employer_name?.trim() as never);
+  setField('worker_name', '工人', patch.worker_name?.trim() as never);
+  setField('entry_date', '入境日', (patch.entry_date ?? null) as never);
+  setField('application_date', '申請日', patch.application_date as never);
+  setField('group_no', '團號', (patch.group_no?.trim() || null) as never);
+  setField('application_item_id', '申請項目', patch.application_item_id as never);
+  setField('amount', '金額', Number(patch.amount ?? caseRow.amount) as never);
+  setField('copy_count', '張數', Number(patch.copy_count ?? caseRow.copy_count ?? 1) as never);
+  setField('payment_date', '收費日期', (patch.payment_date ?? null) as never);
+  setField('receipt_no', '收件編號', (patch.receipt_no?.trim() || null) as never);
+  setField('foreign_no_last5', '外字五碼', (patch.foreign_no_last5?.trim() || null) as never);
+  setField('handler_last4', '經手人後四碼', (patch.handler_last4?.trim().replace(/\D/g, '').slice(0, 4) || null) as never);
+  setField('old_card_checked', '舊卡', Boolean(patch.old_card_checked) as never);
+  setField('receipt_order', '收據順序', (patch.receipt_order ?? null) as never);
+  setField('expected_pickup_date', '領件日', (patch.expected_pickup_date ?? null) as never);
+  setField('note', '備註', (patch.note ?? null) as never);
+
+  if (!next.employer_name && 'employer_name' in next) throw new Error('雇主不可空白。');
+  if (!next.worker_name && 'worker_name' in next) throw new Error('工人不可空白。');
+  if (!next.group_no && 'group_no' in next) throw new Error('團號為必填欄位。');
+  if ('application_date' in next && !next.application_date) throw new Error('申請日格式不正確，請重新輸入。');
+  if ('amount' in next && (!Number.isFinite(Number(next.amount)) || Number(next.amount) < 0)) throw new Error('金額格式不正確，請重新輸入。');
+  if ('copy_count' in next && (!Number.isInteger(Number(next.copy_count)) || Number(next.copy_count) <= 0)) throw new Error('張數格式不正確，請輸入正整數。');
+
+  if (changedFields.length === 0) return;
+
+  if (caseRow.status === 'completed' && next.expected_pickup_date) {
+    next.pickup_date = next.expected_pickup_date;
+  }
+
+  const { error: caseError } = await supabase.from('arc_cases').update(next).eq('id', caseRow.id);
+  if (caseError) throw caseError;
+
+  const affectedBatchIds = new Set<string>();
+  const nextAmount = Number(next.amount ?? caseRow.amount ?? 0);
+  const nextApplicationItemId = String(next.application_item_id ?? caseRow.application_item_id);
+  const amountOrItemChanged = changedFields.some((item) => ['金額', '申請項目'].includes(item.field));
+  if (amountOrItemChanged) {
+    const relatedItems = data.batchItems.filter((item) => item.case_id === caseRow.id);
+    for (const item of relatedItems) {
+      const itemPatch = {
+        corrected_application_item_id: nextApplicationItemId,
+        corrected_amount: nextAmount,
+        correction_reason: '案件查詢修改連動',
+        corrected_by: actor.id,
+        corrected_at: new Date().toISOString()
+      };
+      const { error: itemError } = await supabase.from('payment_batch_items').update(itemPatch).eq('id', item.id);
+      if (itemError) throw itemError;
+      affectedBatchIds.add(item.batch_id);
+    }
+  }
+  if (caseRow.payment_batch_id) affectedBatchIds.add(caseRow.payment_batch_id);
+  for (const batchId of affectedBatchIds) {
+    await recalculatePaymentBatch(batchId, actor);
+  }
+
+  const faxPatch: Record<string, unknown> = {};
+  if ('receipt_no' in next) faxPatch.receipt_no = next.receipt_no ?? '';
+  if ('foreign_no_last5' in next) faxPatch.foreign_no_last5 = next.foreign_no_last5 ?? '';
+  if ('receipt_order' in next) faxPatch.receipt_order = next.receipt_order;
+  if ('copy_count' in next) faxPatch.copy_count = next.copy_count;
+  if ('old_card_checked' in next) faxPatch.old_card_checked = next.old_card_checked;
+  if ('handler_last4' in next) faxPatch.handler_last4 = next.handler_last4;
+  if ('expected_pickup_date' in next) faxPatch.expected_pickup_date = next.expected_pickup_date;
+  if (Object.keys(faxPatch).length) {
+    faxPatch.updated_by = actor.id;
+    const { error: faxError } = await supabase
+      .from('fax_pickup_items')
+      .update(faxPatch)
+      .eq('case_id', caseRow.id)
+      .is('deleted_at', null);
+    if (faxError) throw faxError;
+  }
+
+  await addAudit({
+    action_type: '案件查詢修改',
+    actor_id: actor.id,
+    actor_name: actor.display_name,
+    page_name: '案件查詢',
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: {
+      案件編號: caseRow.case_no,
+      異動欄位: changedFields.map((item) => ({ 欄位: item.field, 原值: item.oldValue }))
+    },
+    new_data: {
+      案件編號: caseRow.case_no,
+      異動欄位: changedFields.map((item) => ({ 欄位: item.field, 新值: item.newValue })),
+      同步更新: {
+        payment_batch_ids: Array.from(affectedBatchIds),
+        fax_pickup_items: Object.keys(faxPatch).length ? '已同步' : '無需同步'
+      }
+    },
+    reason: '案件查詢資料修改並連動相關頁面'
+  });
+}
+
+
 export async function adjustAccountBalance(account: BankAccount, nextBalance: number, reason: string, actor: Profile | null) {
   const before = Number(account.current_balance ?? 0);
   const delta = nextBalance - before;
@@ -1144,13 +1267,30 @@ export async function createPickupRecord(params: {
   if (!selectedPlans.length) throw new Error('找不到預計領件資料。');
   const { data: recordNo, error: rpcError } = await supabase.rpc('next_pickup_record_no', { p_pickup_date: pickupDate });
   if (rpcError) throw rpcError;
-  const { data: record, error } = await supabase.from('pickup_records').insert({
+  const totalCopyCount = selectedPlans.reduce((sum, plan) => {
+    const caseRow = data.cases.find((item) => item.id === plan.case_id);
+    const count = Number(plan.copy_count ?? caseRow?.copy_count ?? 1);
+    if (!Number.isInteger(count) || count <= 0) throw new Error('張數格式不正確，請確認後再領件。');
+    return sum + count;
+  }, 0);
+  const recordPayload = {
     record_no: recordNo,
     pickup_date: pickupDate,
     created_by: actor?.id,
     created_by_name: actor?.display_name,
-    case_count: selectedPlans.length
-  }).select('*').single();
+    case_count: selectedPlans.length,
+    total_copy_count: totalCopyCount
+  };
+  let recordResult = await supabase.from('pickup_records').insert(recordPayload).select('*').single();
+  if (recordResult.error) {
+    const message = `${recordResult.error.message ?? ''} ${recordResult.error.code ?? ''}`;
+    if (message.includes('total_copy_count') || message.includes('PGRST204') || message.includes('42703')) {
+      const fallbackPayload = { ...recordPayload } as Partial<typeof recordPayload>;
+      delete fallbackPayload.total_copy_count;
+      recordResult = await supabase.from('pickup_records').insert(fallbackPayload).select('*').single();
+    }
+  }
+  const { data: record, error } = recordResult;
   if (error) throw error;
   const recordItems = selectedPlans.map((plan) => ({ record_id: record.id, case_id: plan.case_id, status: 'picked_up' }));
   const { error: itemError } = await supabase.from('pickup_record_items').insert(recordItems);
@@ -1324,6 +1464,7 @@ export async function deletePickupRecord(record: PickupRecord, reason: string, a
         record_no: record.record_no,
         pickup_date: record.pickup_date,
         case_count: record.case_count,
+        total_copy_count: record.total_copy_count ?? null,
         details: recordItems ?? []
       },
       new_data: patch,

@@ -23,6 +23,20 @@ function isOldCardChecked(row: PrintRow) {
   return Boolean(row.caseRow.old_card_checked ?? row.appItem?.requires_old_card ?? false);
 }
 
+function normalizedCopyCount(value: unknown): number | null {
+  const count = Number(value ?? 1);
+  if (!Number.isInteger(count) || count <= 0) return null;
+  return count;
+}
+
+function totalCopyCount(rows: PrintRow[]): number {
+  return rows.reduce((sum, row) => {
+    const count = normalizedCopyCount(row.caseRow.copy_count);
+    if (count === null) throw new Error('張數格式不正確，請確認後再列印。');
+    return sum + count;
+  }, 0);
+}
+
 function faxSheetHtml(rows: PrintRow[], pickupDate: string, options: FaxPrintOptions = {}) {
   const sorted = sortRows(rows);
   const brokerName = options.brokerName || '灃康';
@@ -36,9 +50,9 @@ function faxSheetHtml(rows: PrintRow[], pickupDate: string, options: FaxPrintOpt
       <div class="station-info">${escapeHtml(stationInfo)}</div>
     </div>
     <table><thead><tr><th>編號</th><th>收費日期</th><th>收件編號</th><th>IC 卡</th><th>張數</th><th>經手人後四碼</th><th>外字五碼</th><th>舊卡</th><th>雇主</th><th>工人</th><th>承辦</th><th class="small">收據順序</th></tr></thead><tbody>
-    ${sorted.map((row, index) => `<tr><td>${index + 1}</td><td>${formatDate(row.caseRow.payment_date)}</td><td>${escapeHtml(row.caseRow.receipt_no)}</td><td>${row.appItem?.requires_ic_card ? 'V' : ''}</td><td>${row.caseRow.copy_count ?? 1}</td><td>${escapeHtml(row.caseRow.handler_last4)}</td><td>${escapeHtml(row.caseRow.foreign_no_last5)}</td><td>${isOldCardChecked(row) ? 'V' : ''}</td><td>${escapeHtml(row.caseRow.employer_name)}</td><td>${escapeHtml(row.caseRow.worker_name)}</td><td>${escapeHtml(row.caseRow.handler_name)}</td><td class="small">${row.caseRow.receipt_order ?? ''}</td></tr>`).join('')}
+    ${sorted.map((row, index) => `<tr><td>${index + 1}</td><td>${formatDate(row.caseRow.payment_date)}</td><td>${escapeHtml(row.caseRow.receipt_no)}</td><td>${row.appItem?.requires_ic_card ? 'V' : ''}</td><td>${normalizedCopyCount(row.caseRow.copy_count) ?? 1}</td><td>${escapeHtml(row.caseRow.handler_last4)}</td><td>${escapeHtml(row.caseRow.foreign_no_last5)}</td><td>${isOldCardChecked(row) ? 'V' : ''}</td><td>${escapeHtml(row.caseRow.employer_name)}</td><td>${escapeHtml(row.caseRow.worker_name)}</td><td>${escapeHtml(row.caseRow.handler_name)}</td><td class="small">${row.caseRow.receipt_order ?? ''}</td></tr>`).join('')}
     </tbody></table>
-    <div class="footer"><div>仲介名稱：${escapeHtml(brokerName)}</div><div>電話：${escapeHtml(brokerPhone)}</div><div>承辦：${escapeHtml(handlerName)}</div><div>總領件數：${sorted.length} 件</div></div>
+    <div class="footer"><div>仲介名稱：${escapeHtml(brokerName)}</div><div>電話：${escapeHtml(brokerPhone)}</div><div>承辦：${escapeHtml(handlerName)}</div><div>總張數：${totalCopyCount(sorted)} 張</div></div>
   </section>`;
 }
 

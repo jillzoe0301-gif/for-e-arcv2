@@ -220,6 +220,7 @@ export interface PickupRecord {
   created_by?: string | null;
   created_by_name?: string | null;
   case_count: number;
+  total_copy_count?: number | null;
   created_at: string;
   deleted_by?: string | null;
   deleted_at?: string | null;
