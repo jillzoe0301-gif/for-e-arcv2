@@ -34,7 +34,16 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { label: '週四領件', today: weekday === 4 }
   ];
 
-  const pendingPlanCaseIds = useMemo(() => new Set(data.faxPickupItems.filter((item) => item.status === 'pending').map((item) => item.case_id)), [data.faxPickupItems]);
+  function isActivePendingPlan(item: FaxPickupItem) {
+    if (item.status !== 'pending' || item.deleted_at) return false;
+    const caseRow = data.cases.find((row) => row.id === item.case_id);
+    if (!caseRow) return false;
+    return ['pending_pickup', 'not_received'].includes(caseRow.status) && caseRow.pickup_status === 'pending';
+  }
+
+  const activePendingPlans = useMemo(() => data.faxPickupItems.filter((item) => isActivePendingPlan(item)), [data.faxPickupItems, data.cases]);
+
+  const pendingPlanCaseIds = useMemo(() => new Set(activePendingPlans.map((item) => item.case_id)), [activePendingPlans]);
 
   const readyCases = useMemo(() => data.cases
     .filter((caseRow) => ['pending_pickup', 'not_received'].includes(caseRow.status))
@@ -46,13 +55,13 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       String(a.foreign_no_last5 ?? '').localeCompare(String(b.foreign_no_last5 ?? ''), 'zh-Hant', { numeric: true })
     ), [data.cases, keyword, pendingPlanCaseIds]);
 
-  const plannedItems = useMemo(() => data.faxPickupItems
-    .filter((item) => item.status === 'pending' && item.expected_pickup_date === planDate)
+  const plannedItems = useMemo(() => activePendingPlans
+    .filter((item) => normalizePickupDateValue(item.expected_pickup_date) === normalizePickupDateValue(planDate))
     .sort((a, b) =>
       String(data.cases.find((caseRow) => caseRow.id === a.case_id)?.payment_date ?? '').localeCompare(String(data.cases.find((caseRow) => caseRow.id === b.case_id)?.payment_date ?? '')) ||
       String(a.receipt_no).localeCompare(String(b.receipt_no), 'zh-Hant', { numeric: true }) ||
       String(a.foreign_no_last5).localeCompare(String(b.foreign_no_last5), 'zh-Hant', { numeric: true })
-    ), [data.cases, data.faxPickupItems, planDate]);
+    ), [data.cases, activePendingPlans, planDate]);
 
   const activePickupRecords = useMemo(() => data.pickupRecords.filter((record) => !record.deleted_at), [data.pickupRecords]);
 
@@ -111,8 +120,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     const used: Array<{ pickupDate: string; receiptOrder: string; caseId: string; source: string; status: string; fieldName: string }> = [];
     if (!targetDate) return used;
 
-    data.faxPickupItems
-      .filter((item) => item.status === 'pending' && !item.deleted_at)
+    activePendingPlans
       .forEach((item) => {
         const itemDate = normalizePickupDateValue(item.expected_pickup_date);
         const order = normalizeReceiptOrderValue(item.receipt_order);
@@ -327,7 +335,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     for (const caseRow of readyCases) {
       const draft = draftFor(caseRow);
       const paymentDate = parseDateLoose(draft.payment_date);
-      const expectedPickupDate = draft.expected_pickup_date || planDate || nextWeekThursday();
+      const expectedPickupDate = normalizePickupDateValue(draft.expected_pickup_date || planDate || nextWeekThursday());
       const orderText = normalizeReceiptOrderValue(draft.receipt_order);
       const copyText = normalizeCopyCount(draft.copy_count || '1');
       const requiredFilled = Boolean(draft.receipt_no.trim() && draft.foreign_no_last5.trim() && draft.receipt_order.trim());

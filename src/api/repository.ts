@@ -1014,12 +1014,15 @@ export async function addFaxPickupPlan(params: {
   const normalizedOrder = Number(String(receiptOrder ?? '').trim());
   const normalizedCopyCount = Number(copyCount ?? caseRow.copy_count ?? 1);
   if (!Number.isInteger(normalizedCopyCount) || normalizedCopyCount <= 0) throw new Error('張數格式不正確，請輸入正整數。');
-  const validPendingItems = data.faxPickupItems.filter((item) =>
-    item.status === 'pending' &&
-    !item.deleted_at &&
-    item.expected_pickup_date === expectedPickupDate &&
-    Number(item.receipt_order || 0) > 0
-  );
+  const normalizeDateKey = (value: string | null | undefined) => String(value ?? '').slice(0, 10).replace(/\//g, '-');
+  const validPendingItems = data.faxPickupItems.filter((item) => {
+    if (item.status !== 'pending' || item.deleted_at) return false;
+    if (normalizeDateKey(item.expected_pickup_date) !== normalizeDateKey(expectedPickupDate)) return false;
+    if (Number(item.receipt_order || 0) <= 0) return false;
+    const itemCase = data.cases.find((row) => row.id === item.case_id);
+    if (!itemCase) return false;
+    return ['pending_pickup', 'not_received'].includes(itemCase.status) && itemCase.pickup_status === 'pending';
+  });
   const duplicateOrder = validPendingItems.find((item) =>
     Number(item.receipt_order) === normalizedOrder &&
     String(item.case_id) !== String(caseRow.id)
@@ -1035,7 +1038,7 @@ export async function addFaxPickupPlan(params: {
     while (usedSet.has(suggested)) suggested += 1;
     throw new Error(`此領件日已有相同收據順序，請重新輸入。目前此領件日已使用到第 ${used} 號。建議使用第 ${suggested} 號。`);
   }
-  const existing = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
+  const existing = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending' && !item.deleted_at);
   const payload = {
     case_id: caseRow.id,
     receipt_no: receiptNo,
@@ -1144,13 +1147,14 @@ export async function createPickupRecord(params: {
 }) {
   const { caseIds, pickupDate, data, actor } = params;
   if (!caseIds.length) throw new Error('請先選擇要領件的案件。');
-  let selectedPlans = data.faxPickupItems.filter((item) => caseIds.includes(item.case_id) && item.status === 'pending');
+  let selectedPlans = data.faxPickupItems.filter((item) => caseIds.includes(item.case_id) && item.status === 'pending' && !item.deleted_at);
   if (!selectedPlans.length) {
     const { data: freshPlans, error: freshError } = await supabase
       .from('fax_pickup_items')
       .select('*')
       .in('case_id', caseIds)
-      .eq('status', 'pending');
+      .eq('status', 'pending')
+      .is('deleted_at', null);
     if (freshError) throw freshError;
     selectedPlans = (freshPlans ?? []) as FaxPickupItem[];
   }
@@ -1210,7 +1214,7 @@ export async function markPickupNotReceived(params: {
     expected_pickup_date: nextDate,
     updated_by: actor?.id
   }).eq('id', caseRow.id);
-  const existing = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
+  const existing = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending' && !item.deleted_at);
   const payload = {
     case_id: caseRow.id,
     receipt_no: caseRow.receipt_no ?? '',

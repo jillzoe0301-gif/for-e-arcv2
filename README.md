@@ -1,54 +1,44 @@
-# ARC V13.43 更新說明
+# ARC V13.43.2 更新說明
 
-本版修正【居留案件登記】與【傳真/領件】欄位與輸入邏輯。
+本版修正傳真/領件收據序號誤判重複：
 
-## 本版重點
+- 收據序號只依「同一領件日 + 收據序號 + 不同案件」判斷重複。
+- 防重判斷不讀取張數、IC卡、經手人後四碼、收件編號、外字五碼等其他數字欄位。
+- 已從預計領件區移除、已作廢、已刪除、或已回到移民署傳真領件的舊紀錄不再占用序號。
+- 重新移入待領件的案件，原本 14、15 號移出後可再次使用 14、15 號。
+- 預計領件區顯示與防重判斷統一只看有效 pending 且案件 pickup_status 為 pending 的資料。
+- 首頁版本更新為 ARC V13.43.2。
 
-- 居留案件登記新增「張數」欄位。
-- 單筆案件登記、批次送件、現場申請都可輸入張數。
-- 張數預設為 1，只允許正整數。
-- 舊案件若沒有張數，資料庫會自動補 1。
-- 張數會帶入移民署傳真領件、預計領件區、列印、傳真領件紀錄與案件查詢。
-- 傳真領件頁尚未正式加入預計領件區的手動 keyin 欄位，重新整理後會清空。
-- 收件編號、外字五碼、收據順序、經手人後四碼、舊卡、收費日期等測試登打資料，不再永久殘留。
-- 已加入預計領件區或已建立傳真領件紀錄的正式資料仍會保存。
-- 收據順序輸入 10、11、12 等雙位數時，不會在輸入第一個 1 時就被擋住。
-- 收據順序防重改為 blur、Enter、加入預計、一鍵加入、單筆領件、已領件等完成輸入後再檢查完整值。
-- 收據順序防重仍排除自己本身，不會抓到張數欄位。
-- 首頁版本更新為 ARC V13.43。
+## 需要執行 SQL
 
-## 需要執行 Supabase SQL
+請先在 Supabase SQL Editor 執行：
 
-請先到 Supabase SQL Editor 執行：
-
-```sql
-supabase/migrations/202607030012_arc_v13_v43_copy_count_fax_drafts.sql
+```txt
+supabase/migrations/202607030014_arc_v13_v43_2_receipt_order_release_fix.sql
 ```
 
-此 SQL 會新增 `copy_count` 欄位，並補齊舊資料預設張數 1，同時清除未正式加入預計領件區的舊版傳真 keyin 暫存資料。
-
-## 建議部署指令
+## 部署指令
 
 ```bash
-ls -la arc-v13-formal-v43-update.zip
+ls -la arc-v13-formal-v43-2-receipt-order-release-update.zip
 
 printf "\n.env\n.env.local\nnode_modules\ndist\n*.zip\ntsconfig.tsbuildinfo\n*.tsbuildinfo\n" >> .gitignore
 
 rm -rf src public supabase scripts dist node_modules
 rm -f package-lock.json package.json index.html tsconfig.json vite.config.ts README.md BUILD_CHECK.txt
 
-unzip -o arc-v13-formal-v43-update.zip
+unzip -o arc-v13-formal-v43-2-receipt-order-release-update.zip
 
 test -f package.json && echo "package.json OK"
-test -f src/pages/CaseRegistrationPage.tsx && echo "居留案件登記 OK"
 test -f src/pages/FaxPickupPage.tsx && echo "傳真領件 OK"
-test -f supabase/migrations/202607030012_arc_v13_v43_copy_count_fax_drafts.sql && echo "SQL OK"
+test -f src/api/repository.ts && echo "repository OK"
+test -f supabase/migrations/202607030014_arc_v13_v43_2_receipt_order_release_fix.sql && echo "SQL OK"
 
 npm install --registry=https://registry.npmjs.org/ --no-audit --no-fund
 npm run build
 
 git status
 git add -A
-git commit -m "update ARC V13.43 copy count fax draft input"
+git commit -m "update ARC V13.43.2 receipt order release fix"
 git push origin main
 ```
