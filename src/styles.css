@@ -1104,3 +1104,15 @@ input[type="checkbox"] {
   .case-edit-grid { grid-template-columns: 1fr; }
   .case-edit-grid .wide-field { grid-column: auto; }
 }
+
+.supplement-button {
+  border: 1px solid #DDA853;
+  background: #fff8e6;
+  color: #8a5a00;
+  border-radius: 12px;
+  padding: 0.55rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.supplement-button:hover { background: #ffe9ad; }
+.supplement-button:disabled { opacity: .55; cursor: not-allowed; }

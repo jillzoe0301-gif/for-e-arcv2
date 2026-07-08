@@ -22,6 +22,7 @@ import type {
   RegisterCaseInput
 } from '../types';
 import { nextAvailablePickupDay, todayTaipei } from '../utils/date';
+import { sortBrokers, sortPeople } from '../utils/sort';
 
 export const emptyArcData: ArcData = {
   profiles: [],
@@ -105,8 +106,8 @@ export async function loadArcData(): Promise<ArcData> {
   ]);
   return {
     profiles: profiles.filter((item) => !item.deleted_at),
-    people,
-    brokers,
+    people: sortPeople(people),
+    brokers: sortBrokers(brokers),
     accounts,
     applicationItems,
     feeSettings,

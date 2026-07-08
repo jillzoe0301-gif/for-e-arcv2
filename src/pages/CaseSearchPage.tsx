@@ -206,6 +206,9 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
   }
 
   function statusCell(row: ArcCase) {
+    if (row.status === 'pending_pickup' && row.note?.includes('補登')) {
+      return <span className="status-badge status-pending_pickup">補登 / 待加入預計領件</span>;
+    }
     if (row.status === 'pending_pickup' && row.note?.includes('現場申請')) {
       return <span className="status-badge status-pending_pickup">現場申請 / 待傳真領件</span>;
     }

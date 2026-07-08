@@ -307,6 +307,62 @@ export function CaseRegistrationPage({
     }
   }
 
+
+  async function submitSupplementSingle() {
+    const { valid, errors } = validateRows([single]);
+    if (!valid.length) {
+      setSingle(errors[0]);
+      pushToast({ type: 'error', title: '補登失敗', message: errors[0]?.error || '請輸入完整資料' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createCases(valid, data, profile, {
+        forceStatus: 'pending_pickup',
+        note: '補登 / 待加入預計領件',
+        auditAction: '補登案件建立'
+      });
+      pushToast({ type: 'success', title: '補登完成', message: '案件已加入傳真/領件待處理區。' });
+      setSingle(makeDefaultRow());
+      await reload();
+      onGoFaxPickup?.();
+    } catch (err) {
+      pushToast({ type: 'error', title: '補登失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitBatchSupplement() {
+    const { valid, errors } = validateRows(rows);
+    setRows(errors);
+    const firstError = errors.find((row) => row.error)?.error;
+    if (firstError) {
+      pushToast({ type: 'error', title: '批次補登失敗', message: firstError });
+      return;
+    }
+    if (!valid.length) {
+      pushToast({ type: 'error', title: '批次補登失敗', message: '沒有可補登的有效資料，請檢查紅字列。' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createCases(valid, data, profile, {
+        forceStatus: 'pending_pickup',
+        note: '補登 / 待加入預計領件',
+        auditAction: valid.length > 1 ? '批次補登案件建立' : '補登案件建立'
+      });
+      pushToast({ type: 'success', title: '批次補登完成', message: `已補登 ${valid.length} 筆案件，並已加入傳真/領件待處理區。` });
+      setRows(Array.from({ length: 10 }, makeDefaultRow));
+      await reload();
+      onGoFaxPickup?.();
+    } catch (err) {
+      pushToast({ type: 'error', title: '批次補登失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function submitBatch() {
     const { valid, errors } = validateRows(rows);
     setRows(errors);
@@ -375,6 +431,7 @@ export function CaseRegistrationPage({
           <div className="form-actions full-span">
             <button className="ghost-button" type="button" onClick={resetSingle} disabled={submitting}>一鍵清除內容</button>
             <button className="secondary-button" type="button" onClick={submitOnsite} disabled={submitting}>現場申請</button>
+            <button className="supplement-button" type="button" onClick={submitSupplementSingle} disabled={submitting}>補登</button>
             <button className="primary-button" disabled={submitting}>送出登記</button>
           </div>
         </form>
@@ -391,6 +448,7 @@ export function CaseRegistrationPage({
           <div className="toolbar-row">
             <button className="secondary-button" type="button" onClick={addRows}>增加列（+5）</button>
             <button className="ghost-button" type="button" onClick={resetBatchRows}>一鍵清除內容</button>
+            <button className="supplement-button" type="button" onClick={submitBatchSupplement} disabled={submitting}>批次補登</button>
             <button className="primary-button" type="button" onClick={submitBatch} disabled={submitting}>批次送出</button>
           </div>
           <div className="table-wrap batch-grid-wrap">
