@@ -326,6 +326,19 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
+  function printSingleSignatureFromReadyRow(caseRow: ArcCase) {
+    const defaultPickupDate = draftFor(caseRow).expected_pickup_date || caseRow.expected_pickup_date || nextWeekThursday();
+    const rawPickupDate = window.prompt('請輸入領件日，格式 YYYY-MM-DD。', defaultPickupDate);
+    if (rawPickupDate === null) return;
+    const pickupDate = parseDateLoose(rawPickupDate || defaultPickupDate);
+    if (!pickupDate) {
+      pushToast({ type: 'warning', title: '領件日格式不正確，請重新輸入。' });
+      return;
+    }
+    const appItem = data.applicationItems.find((item) => item.id === caseRow.application_item_id);
+    printSignatureSheet([{ caseRow, appItem }], pickupDate);
+  }
+
   async function singlePickup(caseRow: ArcCase) {
     const draft = draftFor(caseRow);
     const plan = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
@@ -487,7 +500,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name },
     { key: 'order', title: '收據順序', render: (row: ArcCase) => <input className="mini-input number" inputMode="numeric" value={draftFor(row).receipt_order} onChange={(e) => changeReceiptOrder(row, e.target.value)} onBlur={() => validateReceiptOrderOnBlur(row)} onKeyDown={(e) => { if (e.key === 'Enter') validateReceiptOrderOnBlur(row); }} /> },
     { key: 'date', title: '領件日', render: (row: ArcCase) => <input type="date" className="mini-input date" value={draftFor(row).expected_pickup_date} onChange={(e) => changeExpectedPickupDate(row, e.target.value)} /> },
-    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal compact-actions fax-row-actions"><button className="secondary-button mini" onClick={() => addPlan(row)}>加入預計</button><button className="primary-button mini" onClick={() => singlePickup(row)}>單筆領件</button><button className="secondary-button mini" onClick={() => openPickedUp(row)}>已領件</button></div> }
+    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal compact-actions fax-row-actions"><button className="secondary-button mini" onClick={() => addPlan(row)}>加入預計</button><button className="primary-button mini" onClick={() => singlePickup(row)}>單筆領件</button><button className="secondary-button mini" onClick={() => printSingleSignatureFromReadyRow(row)}>列印簽收單</button><button className="secondary-button mini" onClick={() => openPickedUp(row)}>已領件</button></div> }
   ];
 
   const planRows = plannedItems.map((plan) => ({ plan, caseRow: data.cases.find((item) => item.id === plan.case_id)! })).filter((row) => row.caseRow);
