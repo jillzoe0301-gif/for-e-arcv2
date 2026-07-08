@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { cancelCasePayment, createPaymentBatch, removeCaseFromPayment, restoreCaseToPayment, updatePendingPaymentAmount } from '../api/repository';
+import { cancelCasePayment, createPaymentBatch, moveCaseFromPaymentToFaxPickup, removeCaseFromPayment, restoreCaseToPayment, updatePendingPaymentAmount } from '../api/repository';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
@@ -289,6 +289,22 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     }
   }
 
+  async function moveToFaxPickup(row: ArcCase) {
+    if (!profile || !['admin', 'staff'].includes(profile.role)) {
+      pushToast({ type: 'warning', title: '您沒有移入傳真/領件的權限。' });
+      return;
+    }
+    if (!window.confirm('確定將此案件移入傳真/領件嗎？此操作代表該筆案件不需繳費，將不會建立繳費批次。')) return;
+    try {
+      await moveCaseFromPaymentToFaxPickup(row, profile);
+      pushToast({ type: 'success', title: '已移入傳真/領件', message: '此案件不會建立繳費批次，已進入移民署傳真領件待處理區。' });
+      setSelectedIds((ids) => ids.filter((id) => id !== row.id));
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '移入傳真/領件失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
   const columns = [
     { key: 'check', title: '選取', render: (row: ArcCase) => <input type="checkbox" checked={selectedIds.includes(row.id)} onChange={() => toggle(row)} /> },
     { key: 'case_no', title: '案件編號', render: (row: ArcCase) => row.case_no },
@@ -299,7 +315,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     { key: 'item', title: '申請項目', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '' },
     { key: 'date', title: '申請日 / 收費日期', render: (row: ArcCase) => row.application_date ?? '' },
     { key: 'amount', title: '金額', render: (row: ArcCase) => <div className="amount-edit-wrap"><input className={`mini-input payment-amount-field ${amountErrors[row.id] ? 'error' : ''}`} inputMode="decimal" value={amountDrafts[row.id] ?? String(row.amount ?? 0)} onChange={(event) => changeAmount(row, event.target.value)} onBlur={() => saveAmount(row)} disabled={!profile} />{amountErrors[row.id] ? <span className="inline-error">{amountErrors[row.id]}</span> : null}</div> },
-    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal"><button className="danger-link" type="button" onClick={() => setCancelTarget(row)}>取消繳費</button>{canDeleteData(profile?.role) ? <button className="danger-link" type="button" onClick={() => removePending(row)}>刪除</button> : null}</div> }
+    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal">{profile && ['admin', 'staff'].includes(profile.role) ? <button className="secondary-button mini" type="button" onClick={() => moveToFaxPickup(row)}>移入傳真/領件</button> : null}<button className="danger-link" type="button" onClick={() => setCancelTarget(row)}>取消繳費</button>{canDeleteData(profile?.role) ? <button className="danger-link" type="button" onClick={() => removePending(row)}>刪除</button> : null}</div> }
   ];
 
   const cancelledColumns = [

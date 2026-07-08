@@ -97,6 +97,8 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const [isAddCaseOpen, setIsAddCaseOpen] = useState(false);
   const [addCaseKeyword, setAddCaseKeyword] = useState('');
   const [selectedAddCaseIds, setSelectedAddCaseIds] = useState<string[]>([]);
+  const [completeTarget, setCompleteTarget] = useState<PaymentBatch | null>(null);
+  const [completeNote, setCompleteNote] = useState('');
 
   const batches = useMemo(() => data.batches
     .filter((item) => item.deleted_at == null)
@@ -165,14 +167,26 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
     });
   }
 
-  async function completeBatch(batch: PaymentBatch) {
+  function completeBatch(batch: PaymentBatch) {
+    if (!mayCompleteBatch) {
+      pushToast({ type: 'warning', title: '行政不可執行對帳完成。' });
+      return;
+    }
+    setCompleteTarget(batch);
+    setCompleteNote(batch.note ?? '');
+  }
+
+  async function submitCompleteBatch() {
+    if (!completeTarget) return;
     if (!mayCompleteBatch) {
       pushToast({ type: 'warning', title: '行政不可執行對帳完成。' });
       return;
     }
     try {
-      await confirmPaymentBatch(batch, profile);
+      await confirmPaymentBatch(completeTarget, profile, completeNote);
       pushToast({ type: 'success', title: '對帳完成', message: '此批次已轉入財務查詢。' });
+      setCompleteTarget(null);
+      setCompleteNote('');
       setSelectedBatchId('');
       await reload();
     } catch (err) {
@@ -505,6 +519,21 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
             { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name }
           ]} rows={addableCases} rowKey={(row) => row.id} emptyText="沒有可加入此批次的待繳案件" />
           <div className="form-actions"><button className="primary-button" onClick={submitAddCases}>加入所選案件</button></div>
+        </Modal>
+      ) : null}
+
+      {completeTarget ? (
+        <Modal title="對帳完成" onClose={() => setCompleteTarget(null)}>
+          <div className="form-grid one-col">
+            <p className="subtle-text">確認完成後，此繳費批次會從財務對帳確認移到財務查詢。備註可空白。</p>
+            <label><span>繳費批次編號</span><input value={completeTarget.batch_no} disabled /></label>
+            <label><span>繳費日期</span><input value={formatDate(completeTarget.payment_date)} disabled /></label>
+            <label><span>繳款人</span><input value={completeTarget.payer_name} disabled /></label>
+            <label><span>仲介</span><input value={data.brokers.find((item) => item.id === completeTarget.broker_id)?.name ?? ''} disabled /></label>
+            <label><span>該筆總金額</span><input value={`${formatMoney(completeTarget.total_amount)} 元`} disabled /></label>
+            <label><span>備註</span><textarea value={completeNote} onChange={(e) => setCompleteNote(e.target.value)} placeholder="可輸入對帳備註，非必填" /></label>
+          </div>
+          <div className="form-actions"><button className="primary-button" onClick={submitCompleteBatch}>確認對帳完成</button></div>
         </Modal>
       ) : null}
 

@@ -62,12 +62,23 @@ function signatureSheetHtml(rows: Array<{ caseRow: ArcCase; appItem?: Applicatio
     const key = row.caseRow.handler_name || '未指定';
     byHandler.set(key, [...(byHandler.get(key) ?? []), row]);
   });
-  return Array.from(byHandler.entries()).sort(([a], [b]) => a.localeCompare(b, 'zh-Hant')).map(([handler, items]) => `
+  return Array.from(byHandler.entries()).sort(([a], [b]) => a.localeCompare(b, 'zh-Hant')).map(([handler, items]) => {
+    const handlerCopyTotal = totalSignatureCopyCount(items);
+    return `
     <section class="handler-section"><h2>承辦：${escapeHtml(handler)}</h2>
-    <table><thead><tr><th>領件日</th><th>雇主</th><th>工人</th><th>團號</th><th>申請項目</th></tr></thead><tbody>
-    ${items.map((row) => `<tr><td>${formatDate(pickupDate)}</td><td>${escapeHtml(row.caseRow.employer_name)}</td><td>${escapeHtml(row.caseRow.worker_name)}</td><td>${escapeHtml(row.caseRow.group_no)}</td><td>${escapeHtml(row.appItem?.name)}</td></tr>`).join('')}
-    </tbody></table><div class="sign-row">承辦簽名：______________　　本承辦總領件數：${items.length} 件</div></section>
-  `).join('');
+    <table><thead><tr><th>領件日</th><th>雇主</th><th>工人</th><th>團號</th><th>申請項目</th><th>張數</th></tr></thead><tbody>
+    ${items.map((row) => `<tr><td>${formatDate(pickupDate)}</td><td>${escapeHtml(row.caseRow.employer_name)}</td><td>${escapeHtml(row.caseRow.worker_name)}</td><td>${escapeHtml(row.caseRow.group_no)}</td><td>${escapeHtml(row.appItem?.name)}</td><td>${normalizedCopyCount(row.caseRow.copy_count) ?? 1}</td></tr>`).join('')}
+    </tbody></table><div class="sign-row">承辦簽名：______________　　本承辦總張數：${handlerCopyTotal} 張</div></section>
+  `;
+  }).join('');
+}
+
+function totalSignatureCopyCount(rows: Array<{ caseRow: ArcCase; appItem?: ApplicationItem }>): number {
+  return rows.reduce((sum, row) => {
+    const count = normalizedCopyCount(row.caseRow.copy_count);
+    if (count === null) throw new Error('張數格式不正確，請確認後再列印。');
+    return sum + count;
+  }, 0);
 }
 
 function printShell(title: string, body: string) {

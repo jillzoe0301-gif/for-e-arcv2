@@ -159,6 +159,7 @@ export interface PaymentBatch {
   status: BatchStatus;
   confirmed_by?: string | null;
   confirmed_at?: string | null;
+  note?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;

@@ -137,6 +137,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
           row.accountName,
           row.accountLast5,
           row.batch.status,
+          row.batch.note,
           row.confirmedByName
         ];
         const detailFields = row.details.flatMap(({ item, caseRow, paymentDate }) => [
@@ -334,6 +335,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
                     <span><b>批次總金額</b>{formatMoney(row.batch.total_amount)}</span>
                     <span><b>對帳完成時間</b>{displayDateTime(row.batch.confirmed_at)}</span>
                     <span><b>對帳確認人</b>{row.confirmedByName}</span>
+                    <span className="finance-note-meta"><b>備註</b>{row.batch.note ?? ''}</span>
                   </div>
                   {canDeleteData(profile?.role) ? (
                     <button className="danger-button mini" type="button" onClick={() => removeBatch(row)}>刪除</button>

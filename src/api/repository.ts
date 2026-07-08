@@ -312,6 +312,68 @@ export async function removeCaseFromPayment(caseRow: ArcCase, actor: Profile | n
   });
 }
 
+
+export async function moveCaseFromPaymentToFaxPickup(caseRow: ArcCase, actor: Profile | null) {
+  if (!actor || !['admin', 'staff'].includes(actor.role)) throw new Error('您沒有移入傳真/領件的權限。');
+  if (caseRow.status !== 'pending_payment' || caseRow.payment_batch_id || caseRow.payment_account_id) {
+    throw new Error('只有尚未建立繳費批次的待繳案件可以移入傳真/領件。');
+  }
+  if (caseRow.pickup_status === 'pending' || caseRow.status === 'pending_pickup') {
+    throw new Error('此案件已在傳真/領件流程中。');
+  }
+  const activePlanResult = await supabase
+    .from('fax_pickup_items')
+    .select('id')
+    .eq('case_id', caseRow.id)
+    .eq('status', 'pending')
+    .is('deleted_at', null)
+    .limit(1);
+  if (activePlanResult.error) throw activePlanResult.error;
+  if ((activePlanResult.data ?? []).length) throw new Error('此案件已在傳真/領件流程中。');
+
+  const patch = {
+    status: 'pending_pickup' as ArcCase['status'],
+    payment_batch_id: null,
+    payment_account_id: null,
+    payment_date: null,
+    pickup_status: null,
+    note: [caseRow.note, '不需繳費，移入傳真/領件｜由居留證繳費頁面手動移入傳真/領件'].filter(Boolean).join('｜'),
+    updated_by: actor.id
+  };
+  const { error } = await supabase.from('arc_cases').update(patch).eq('id', caseRow.id);
+  if (error) throw error;
+  await addAudit({
+    action_type: '移入傳真/領件',
+    actor_id: actor.id,
+    actor_name: actor.display_name,
+    page_name: '居留證繳費',
+    record_table: 'arc_cases',
+    record_id: caseRow.id,
+    old_data: {
+      案件ID: caseRow.id,
+      案件編號: caseRow.case_no,
+      雇主: caseRow.employer_name,
+      工人: caseRow.worker_name,
+      團號: caseRow.group_no,
+      申請項目: caseRow.application_item_id,
+      原狀態: caseRow.status,
+      原始資料: caseRow
+    },
+    new_data: {
+      案件ID: caseRow.id,
+      案件編號: caseRow.case_no,
+      雇主: caseRow.employer_name,
+      工人: caseRow.worker_name,
+      團號: caseRow.group_no,
+      申請項目: caseRow.application_item_id,
+      新狀態: '不需繳費 / 待加入預計領件',
+      流向: '傳真/領件',
+      更新資料: patch
+    },
+    reason: '不需繳費，移入傳真/領件'
+  });
+}
+
 export async function createPaymentBatch(params: {
   caseIds: string[];
   brokerId: string;
@@ -435,9 +497,18 @@ export async function createPaymentBatch(params: {
   return batch as PaymentBatch;
 }
 
-export async function confirmPaymentBatch(batch: PaymentBatch, actor: Profile | null) {
-  const patch = { status: 'confirmed', confirmed_by: actor?.id, confirmed_at: new Date().toISOString(), updated_by: actor?.id };
-  const { error } = await supabase.from('payment_batches').update(patch).eq('id', batch.id);
+export async function confirmPaymentBatch(batch: PaymentBatch, actor: Profile | null, note = '') {
+  const cleanNote = String(note ?? '').trim();
+  const patch = { status: 'confirmed', confirmed_by: actor?.id, confirmed_at: new Date().toISOString(), note: cleanNote || null, updated_by: actor?.id };
+  let updateResult = await supabase.from('payment_batches').update(patch).eq('id', batch.id);
+  if (updateResult.error) {
+    const message = `${updateResult.error.message ?? ''} ${updateResult.error.code ?? ''}`;
+    if (message.includes('note') || message.includes('PGRST204') || message.includes('42703')) {
+      const fallbackPatch = { status: patch.status, confirmed_by: patch.confirmed_by, confirmed_at: patch.confirmed_at, updated_by: patch.updated_by };
+      updateResult = await supabase.from('payment_batches').update(fallbackPatch).eq('id', batch.id);
+    }
+  }
+  const { error } = updateResult;
   if (error) throw error;
   await addAudit({
     action_type: '會計確認',
@@ -460,9 +531,10 @@ export async function confirmPaymentBatch(batch: PaymentBatch, actor: Profile | 
       對帳完成時間: patch.confirmed_at,
       批次案件數: batch.case_count,
       批次總金額: batch.total_amount,
+      備註內容: cleanNote,
       更新資料: patch
     },
-    reason: '財務對帳完成後，同一筆繳費批次轉入財務查詢。'
+    reason: cleanNote || '財務對帳完成後，同一筆繳費批次轉入財務查詢。'
   });
 }
 

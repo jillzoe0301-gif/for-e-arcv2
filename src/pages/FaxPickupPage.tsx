@@ -6,7 +6,7 @@ import { PageHeader } from '../components/PageHeader';
 import { SearchInput } from '../components/SearchInput';
 import { CaseStatusBadge } from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
-import type { ArcCase, ArcData, FaxPickupItem, PickupRecord, PickupRecordItem, Profile } from '../types';
+import type { ArcCase, ArcData, ApplicationItem, FaxPickupItem, PickupRecord, PickupRecordItem, Profile } from '../types';
 import { formatDate, nextWeekThursday, parseDateLoose, taipeiWeekday, todayTaipei } from '../utils/date';
 import { canCompletePickup, canDeletePickupRecord } from '../utils/permissions';
 import { printFaxAndSignatureSheets, printFaxPickupSheet, printSignatureSheet } from '../utils/print';
@@ -325,6 +325,20 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       pushToast({ type: 'error', title: '建立紀錄失敗', message: errorMessage(err, '請稍後再試') });
     }
   }
+
+  function printSingleSignatureFromReadyRow(caseRow: ArcCase) {
+    const defaultPickupDate = draftFor(caseRow).expected_pickup_date || caseRow.expected_pickup_date || nextWeekThursday();
+    const rawPickupDate = window.prompt('請輸入領件日，格式 YYYY-MM-DD。', defaultPickupDate);
+    if (rawPickupDate === null) return;
+    const pickupDate = parseDateLoose(rawPickupDate || defaultPickupDate);
+    if (!pickupDate) {
+      pushToast({ type: 'warning', title: '領件日格式不正確，請重新輸入。' });
+      return;
+    }
+    const appItem = data.applicationItems.find((item) => item.id === caseRow.application_item_id);
+    printSignatureSheet([{ caseRow, appItem }], pickupDate);
+  }
+
   async function singlePickup(caseRow: ArcCase) {
     const draft = draftFor(caseRow);
     const plan = data.faxPickupItems.find((item) => item.case_id === caseRow.id && item.status === 'pending');
@@ -382,7 +396,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
     try {
       await markCasePickedUp({ caseRow: pickedUpTarget, pickupDate: parsedDate, data, actor: profile });
-      pushToast({ type: 'success', title: '已領件完成，已移入案件查詢', message: `${pickedUpTarget.employer_name}｜${pickedUpTarget.worker_name}` });
+      pushToast({ type: 'success', title: '已領件完成', message: `${pickedUpTarget.employer_name}｜${pickedUpTarget.worker_name}` });
       setPickedUpTarget(null);
       setPickedUpDate(todayTaipei());
       await reload();
@@ -449,11 +463,6 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
-  function printSingleSignatureFromRecord(record: PickupRecord, caseRow: ArcCase) {
-    const appItem = data.applicationItems.find((item) => item.id === caseRow.application_item_id);
-    printSignatureSheet([{ caseRow, appItem }], record.pickup_date);
-  }
-
   async function markNotReceived(entry: { recordItem: PickupRecordItem; caseRow: ArcCase }) {
     try {
       await markPickupNotReceived({ recordItem: entry.recordItem, caseRow: entry.caseRow, data, actor: profile });
@@ -477,6 +486,30 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
+  function rowsForPickupRecord(record: PickupRecord) {
+    return data.pickupRecordItems
+      .filter((item) => item.record_id === record.id)
+      .map((recordItem) => {
+        const caseRow = data.cases.find((caseEntry) => caseEntry.id === recordItem.case_id);
+        if (!caseRow) return null;
+        return { caseRow, appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id) };
+      })
+      .filter((row): row is { caseRow: ArcCase; appItem?: ApplicationItem } => Boolean(row));
+  }
+
+  function printRecordSignature(record: PickupRecord) {
+    const rows = rowsForPickupRecord(record);
+    if (!rows.length) {
+      pushToast({ type: 'warning', title: '此筆領件紀錄沒有可列印明細' });
+      return;
+    }
+    try {
+      printSignatureSheet(rows, record.pickup_date);
+    } catch (err) {
+      pushToast({ type: 'error', title: '列印失敗', message: errorMessage(err, '請確認張數後再試') });
+    }
+  }
+
   const readyColumns = [
     { key: 'no', title: '編號', render: (_row: ArcCase, index: number) => index + 1 },
     { key: 'feeDate', title: '收費日期', render: (row: ArcCase) => <input className="mini-input date" value={draftFor(row).payment_date} onChange={(e) => setDraft(row.id, 'payment_date', e.target.value)} onBlur={() => savePaymentDate(row)} placeholder="YYYY-MM-DD" /> },
@@ -491,7 +524,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name },
     { key: 'order', title: '收據順序', render: (row: ArcCase) => <input className="mini-input number" inputMode="numeric" value={draftFor(row).receipt_order} onChange={(e) => changeReceiptOrder(row, e.target.value)} onBlur={() => validateReceiptOrderOnBlur(row)} onKeyDown={(e) => { if (e.key === 'Enter') validateReceiptOrderOnBlur(row); }} /> },
     { key: 'date', title: '領件日', render: (row: ArcCase) => <input type="date" className="mini-input date" value={draftFor(row).expected_pickup_date} onChange={(e) => changeExpectedPickupDate(row, e.target.value)} /> },
-    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal compact-actions fax-row-actions"><button className="secondary-button mini" onClick={() => addPlan(row)}>加入預計</button><button className="primary-button mini" onClick={() => singlePickup(row)}>單筆領件</button><button className="secondary-button mini" onClick={() => openPickedUp(row)}>已領件</button></div> }
+    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal compact-actions fax-row-actions"><button className="secondary-button mini" onClick={() => addPlan(row)}>加入預計</button><button className="primary-button mini" onClick={() => singlePickup(row)}>單筆領件</button><button className="secondary-button mini" onClick={() => printSingleSignatureFromReadyRow(row)}>列印簽收單</button><button className="secondary-button mini" onClick={() => openPickedUp(row)}>已領件</button></div> }
   ];
 
   const planRows = plannedItems.map((plan) => ({ plan, caseRow: data.cases.find((item) => item.id === plan.case_id)! })).filter((row) => row.caseRow);
@@ -519,22 +552,14 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }, 0);
   }
 
-  function recordKind(record: PickupRecord) {
-    const audit = data.auditLogs.find((log) => log.record_table === 'pickup_records' && log.record_id === record.id);
-    if (audit?.action_type === '單筆領件') return '單筆領件';
-    if (audit?.action_type === '批次領件') return '批次領件';
-    return Number(record.case_count) === 1 ? '單筆領件' : '批次領件';
-  }
-
   const recordColumns = [
     { key: 'record_no', title: '紀錄編號', render: (row: PickupRecord) => row.record_no },
-    { key: 'kind', title: '紀錄類型', render: (row: PickupRecord) => recordKind(row) },
     { key: 'pickup_date', title: '領件日期', render: (row: PickupRecord) => formatDate(row.pickup_date) },
     { key: 'created_at', title: '建立日期', render: (row: PickupRecord) => formatDate(row.created_at) },
     { key: 'creator', title: '建立人', render: (row: PickupRecord) => row.created_by_name ?? '' },
     { key: 'count', title: '本次案件數', render: (row: PickupRecord) => `${row.case_count} 件` },
     { key: 'totalCopy', title: '本次總張數', render: (row: PickupRecord) => `${row.total_copy_count ?? totalCopyCountForRecord(row)} 張` },
-    { key: 'action', title: '操作', render: (row: PickupRecord) => <div className="action-stack horizontal">{canDeletePickupRecord(profile?.role) ? <button className="danger-link" onClick={() => setDeleteTarget(row)}>刪除</button> : null}</div> }
+    { key: 'action', title: '操作', render: (row: PickupRecord) => <div className="action-stack horizontal compact-actions"><button className="secondary-button mini" onClick={() => printRecordSignature(row)}>列印簽收單</button>{canDeletePickupRecord(profile?.role) ? <button className="danger-link" onClick={() => setDeleteTarget(row)}>刪除</button> : null}</div> }
   ];
 
   return (
@@ -579,12 +604,11 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
           const items = data.pickupRecordItems.filter((item) => item.record_id === record.id).map((recordItem) => ({ recordItem, caseRow: data.cases.find((caseRow) => caseRow.id === recordItem.case_id) })).filter((entry): entry is { recordItem: PickupRecordItem; caseRow: ArcCase } => Boolean(entry.caseRow));
           return (
             <details className="record-detail" key={record.id}>
-              <summary>{record.record_no}｜{recordKind(record)} 明細</summary>
+              <summary>{record.record_no} 明細</summary>
               {items.map((entry) => (
                 <div className="record-detail-row" key={entry.recordItem.id}>
                   <span>{entry.caseRow.employer_name}｜{entry.caseRow.worker_name}｜張數 {entry.caseRow.copy_count ?? 1}｜{entry.caseRow.handler_name}</span>
                   <CaseStatusBadge status={entry.caseRow.status} />
-                  <button className="secondary-button mini" onClick={() => printSingleSignatureFromRecord(record, entry.caseRow)}>列印簽收單</button>
                   {entry.recordItem.status !== 'not_received' ? <button className="danger-link" onClick={() => markNotReceived(entry)}>本次未領到</button> : null}
                 </div>
               ))}
@@ -594,7 +618,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       </section>
       {pickedUpTarget ? (
         <Modal title="確認已領件" onClose={() => setPickedUpTarget(null)}>
-          <p>請輸入實際領件日。確認後案件會直接保留於案件查詢，不會建立或移入下方的傳真領件紀錄。</p>
+          <p>請輸入實際領件日，完成後案件會自移民署傳真領件與預計領件區移除，並保留於案件查詢。</p>
           <div className="summary-box">
             <strong>{pickedUpTarget.employer_name}｜{pickedUpTarget.worker_name}</strong>
             <span>團號：{pickedUpTarget.group_no ?? ''}</span>
