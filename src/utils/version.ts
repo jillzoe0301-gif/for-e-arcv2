@@ -1,3 +1,3 @@
-export const APP_VERSION = 'ARC V13.48.1';
+export const APP_VERSION = 'ARC V13.48.2';
 export const APP_UPDATED_AT = '2026-07-08';
-export const APP_UPDATE_NOTE = '單筆列印簽收單移至傳真領件紀錄明細；尚未傳真領件的待處理列不再顯示單獨列印簽收單。';
+export const APP_UPDATE_NOTE = '單筆領件紀錄顯示單筆領件；已領件可輸入領件日並直接保留於案件查詢，不建立傳真領件紀錄。';

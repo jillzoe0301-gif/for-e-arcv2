@@ -382,7 +382,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
     try {
       await markCasePickedUp({ caseRow: pickedUpTarget, pickupDate: parsedDate, data, actor: profile });
-      pushToast({ type: 'success', title: '已領件完成', message: `${pickedUpTarget.employer_name}｜${pickedUpTarget.worker_name}` });
+      pushToast({ type: 'success', title: '已領件完成，已移入案件查詢', message: `${pickedUpTarget.employer_name}｜${pickedUpTarget.worker_name}` });
       setPickedUpTarget(null);
       setPickedUpDate(todayTaipei());
       await reload();
@@ -519,8 +519,16 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }, 0);
   }
 
+  function recordKind(record: PickupRecord) {
+    const audit = data.auditLogs.find((log) => log.record_table === 'pickup_records' && log.record_id === record.id);
+    if (audit?.action_type === '單筆領件') return '單筆領件';
+    if (audit?.action_type === '批次領件') return '批次領件';
+    return Number(record.case_count) === 1 ? '單筆領件' : '批次領件';
+  }
+
   const recordColumns = [
     { key: 'record_no', title: '紀錄編號', render: (row: PickupRecord) => row.record_no },
+    { key: 'kind', title: '紀錄類型', render: (row: PickupRecord) => recordKind(row) },
     { key: 'pickup_date', title: '領件日期', render: (row: PickupRecord) => formatDate(row.pickup_date) },
     { key: 'created_at', title: '建立日期', render: (row: PickupRecord) => formatDate(row.created_at) },
     { key: 'creator', title: '建立人', render: (row: PickupRecord) => row.created_by_name ?? '' },
@@ -571,7 +579,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
           const items = data.pickupRecordItems.filter((item) => item.record_id === record.id).map((recordItem) => ({ recordItem, caseRow: data.cases.find((caseRow) => caseRow.id === recordItem.case_id) })).filter((entry): entry is { recordItem: PickupRecordItem; caseRow: ArcCase } => Boolean(entry.caseRow));
           return (
             <details className="record-detail" key={record.id}>
-              <summary>{record.record_no} 明細</summary>
+              <summary>{record.record_no}｜{recordKind(record)} 明細</summary>
               {items.map((entry) => (
                 <div className="record-detail-row" key={entry.recordItem.id}>
                   <span>{entry.caseRow.employer_name}｜{entry.caseRow.worker_name}｜張數 {entry.caseRow.copy_count ?? 1}｜{entry.caseRow.handler_name}</span>
@@ -586,7 +594,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       </section>
       {pickedUpTarget ? (
         <Modal title="確認已領件" onClose={() => setPickedUpTarget(null)}>
-          <p>請輸入實際領件日，完成後案件會自移民署傳真領件與預計領件區移除，並保留於案件查詢。</p>
+          <p>請輸入實際領件日。確認後案件會直接保留於案件查詢，不會建立或移入下方的傳真領件紀錄。</p>
           <div className="summary-box">
             <strong>{pickedUpTarget.employer_name}｜{pickedUpTarget.worker_name}</strong>
             <span>團號：{pickedUpTarget.group_no ?? ''}</span>
