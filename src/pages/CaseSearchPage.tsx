@@ -206,6 +206,9 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
   }
 
   function statusCell(row: ArcCase) {
+    if (row.status === 'pending_pickup' && (row.note?.includes('不需繳費') || row.note?.includes('由居留證繳費頁面手動移入'))) {
+      return <span className="status-badge status-pending_pickup">不需繳費 / 待加入預計領件</span>;
+    }
     if (row.status === 'pending_pickup' && row.note?.includes('補登')) {
       return <span className="status-badge status-pending_pickup">補登 / 待加入預計領件</span>;
     }

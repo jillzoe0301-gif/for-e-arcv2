@@ -8,7 +8,8 @@ export interface FaxPrintOptions {
   stationInfo?: string;
 }
 
-type PrintRow = { caseRow: ArcCase; appItem?: ApplicationItem; brokerName?: string };
+export type SignaturePrintRow = { caseRow: ArcCase; appItem: ApplicationItem | undefined };
+export type PrintRow = SignaturePrintRow & { brokerName: string | undefined };
 
 function sortRows(rows: PrintRow[]) {
   return [...rows].sort((a, b) =>
@@ -24,7 +25,10 @@ function isOldCardChecked(row: PrintRow) {
 }
 
 function normalizedCopyCount(value: unknown): number | null {
-  const count = Number(value ?? 1);
+  const raw = value === null || value === undefined ? '' : String(value).trim();
+  if (!raw) return 1;
+  if (!/^\d+$/.test(raw.replace(/,/g, ''))) return null;
+  const count = Number(raw.replace(/,/g, ''));
   if (!Number.isInteger(count) || count <= 0) return null;
   return count;
 }
@@ -56,8 +60,8 @@ function faxSheetHtml(rows: PrintRow[], pickupDate: string, options: FaxPrintOpt
   </section>`;
 }
 
-function signatureSheetHtml(rows: Array<{ caseRow: ArcCase; appItem?: ApplicationItem }>, pickupDate: string) {
-  const byHandler = new Map<string, Array<{ caseRow: ArcCase; appItem?: ApplicationItem }>>();
+function signatureSheetHtml(rows: SignaturePrintRow[], pickupDate: string) {
+  const byHandler = new Map<string, SignaturePrintRow[]>();
   rows.forEach((row) => {
     const key = row.caseRow.handler_name || '未指定';
     byHandler.set(key, [...(byHandler.get(key) ?? []), row]);
@@ -66,14 +70,14 @@ function signatureSheetHtml(rows: Array<{ caseRow: ArcCase; appItem?: Applicatio
     const handlerCopyTotal = totalSignatureCopyCount(items);
     return `
     <section class="handler-section"><h2>承辦：${escapeHtml(handler)}</h2>
-    <table><thead><tr><th>領件日</th><th>雇主</th><th>工人</th><th>團號</th><th>申請項目</th><th>張數</th></tr></thead><tbody>
-    ${items.map((row) => `<tr><td>${formatDate(pickupDate)}</td><td>${escapeHtml(row.caseRow.employer_name)}</td><td>${escapeHtml(row.caseRow.worker_name)}</td><td>${escapeHtml(row.caseRow.group_no)}</td><td>${escapeHtml(row.appItem?.name)}</td><td>${normalizedCopyCount(row.caseRow.copy_count) ?? 1}</td></tr>`).join('')}
+    <table><thead><tr><th>領件日</th><th>承辦</th><th>雇主</th><th>工人</th><th>團號</th><th>申請項目</th><th>張數</th></tr></thead><tbody>
+    ${items.map((row) => `<tr><td>${formatDate(pickupDate)}</td><td>${escapeHtml(row.caseRow.handler_name)}</td><td>${escapeHtml(row.caseRow.employer_name)}</td><td>${escapeHtml(row.caseRow.worker_name)}</td><td>${escapeHtml(row.caseRow.group_no)}</td><td>${escapeHtml(row.appItem?.name)}</td><td>${normalizedCopyCount(row.caseRow.copy_count) ?? 1}</td></tr>`).join('')}
     </tbody></table><div class="sign-row">承辦簽名：______________　　本承辦總張數：${handlerCopyTotal} 張</div></section>
   `;
   }).join('');
 }
 
-function totalSignatureCopyCount(rows: Array<{ caseRow: ArcCase; appItem?: ApplicationItem }>): number {
+function totalSignatureCopyCount(rows: SignaturePrintRow[]): number {
   return rows.reduce((sum, row) => {
     const count = normalizedCopyCount(row.caseRow.copy_count);
     if (count === null) throw new Error('張數格式不正確，請確認後再列印。');
@@ -90,7 +94,7 @@ export function printFaxPickupSheet(rows: PrintRow[], pickupDate: string, option
   openPrint(printShell('移民署ARC傳真領件單', faxSheetHtml(rows, pickupDate, options)));
 }
 
-export function printSignatureSheet(rows: Array<{ caseRow: ArcCase; appItem?: ApplicationItem }>, pickupDate: string) {
+export function printSignatureSheet(rows: SignaturePrintRow[], pickupDate: string) {
   const body = `<section class="print-page"><h1>領件簽收單｜${formatDate(pickupDate)}</h1>${signatureSheetHtml(rows, pickupDate)}</section>`;
   openPrint(printShell('簽收單', body));
 }

@@ -315,11 +315,12 @@ export async function removeCaseFromPayment(caseRow: ArcCase, actor: Profile | n
 
 export async function moveCaseFromPaymentToFaxPickup(caseRow: ArcCase, actor: Profile | null) {
   if (!actor || !['admin', 'staff'].includes(actor.role)) throw new Error('您沒有移入傳真/領件的權限。');
-  if (caseRow.status !== 'pending_payment' || caseRow.payment_batch_id || caseRow.payment_account_id) {
-    throw new Error('只有尚未建立繳費批次的待繳案件可以移入傳真/領件。');
-  }
-  if (caseRow.pickup_status === 'pending' || caseRow.status === 'pending_pickup') {
+  const currentStatus = String(caseRow.status);
+  if (caseRow.pickup_status === 'pending' || currentStatus === 'pending_pickup') {
     throw new Error('此案件已在傳真/領件流程中。');
+  }
+  if (currentStatus !== 'pending_payment' || caseRow.payment_batch_id || caseRow.payment_account_id) {
+    throw new Error('只有尚未建立繳費批次的待繳案件可以移入傳真/領件。');
   }
   const activePlanResult = await supabase
     .from('fax_pickup_items')

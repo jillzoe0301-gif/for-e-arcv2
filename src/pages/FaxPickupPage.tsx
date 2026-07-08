@@ -10,6 +10,7 @@ import type { ArcCase, ArcData, ApplicationItem, FaxPickupItem, PickupRecord, Pi
 import { formatDate, nextWeekThursday, parseDateLoose, taipeiWeekday, todayTaipei } from '../utils/date';
 import { canCompletePickup, canDeletePickupRecord } from '../utils/permissions';
 import { printFaxAndSignatureSheets, printFaxPickupSheet, printSignatureSheet } from '../utils/print';
+import type { PrintRow, SignaturePrintRow } from '../utils/print';
 import { rowMatchesKeyword } from '../utils/search';
 
 type FaxDraft = { payment_date: string; receipt_no: string; foreign_no_last5: string; receipt_order: string; copy_count: string; expected_pickup_date: string; fax_date: string; old_card_checked: boolean; handler_last4: string };
@@ -327,7 +328,13 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   }
 
   function printSingleSignatureFromReadyRow(caseRow: ArcCase) {
-    const defaultPickupDate = draftFor(caseRow).expected_pickup_date || caseRow.expected_pickup_date || nextWeekThursday();
+    const draft = draftFor(caseRow);
+    const copyText = normalizeCopyCount(draft.copy_count || String(caseRow.copy_count ?? 1));
+    if (!copyText) {
+      pushToast({ type: 'warning', title: '張數格式不正確，請確認後再列印。' });
+      return;
+    }
+    const defaultPickupDate = draft.expected_pickup_date || caseRow.expected_pickup_date || nextWeekThursday();
     const rawPickupDate = window.prompt('請輸入領件日，格式 YYYY-MM-DD。', defaultPickupDate);
     if (rawPickupDate === null) return;
     const pickupDate = parseDateLoose(rawPickupDate || defaultPickupDate);
@@ -336,7 +343,12 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       return;
     }
     const appItem = data.applicationItems.find((item) => item.id === caseRow.application_item_id);
-    printSignatureSheet([{ caseRow, appItem }], pickupDate);
+    const caseForPrint: ArcCase = { ...caseRow, copy_count: Number(copyText) };
+    try {
+      printSignatureSheet([{ caseRow: caseForPrint, appItem }], pickupDate);
+    } catch (err) {
+      pushToast({ type: 'error', title: '列印失敗', message: errorMessage(err, '請確認張數後再試') });
+    }
   }
 
   async function singlePickup(caseRow: ArcCase) {
@@ -405,14 +417,21 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
-  function printableRows() {
-    return plannedItems
+  function printableRows(): PrintRow[] {
+    const rows: PrintRow[] = [];
+    plannedItems
       .filter((item) => selectedPlanIds.includes(item.id))
-      .map((plan) => {
-        const caseRow = data.cases.find((item) => item.id === plan.case_id)!;
-        return { caseRow, appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id), brokerName: data.brokers.find((item) => item.id === caseRow.broker_id)?.name };
-      })
-      .filter((row) => Boolean(row.caseRow));
+      .forEach((plan) => {
+        const foundCase = data.cases.find((item) => item.id === plan.case_id);
+        if (!foundCase) return;
+        const caseRow: ArcCase = { ...foundCase, copy_count: plan.copy_count ?? foundCase.copy_count ?? 1 };
+        rows.push({
+          caseRow,
+          appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id),
+          brokerName: data.brokers.find((item) => item.id === caseRow.broker_id)?.name
+        });
+      });
+    return rows;
   }
 
   function printOptions() {
@@ -450,7 +469,11 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
   function printSignOnly() {
     const rows = ensurePrintableRows();
     if (!rows) return;
-    printSignatureSheet(rows, planDate);
+    try {
+      printSignatureSheet(rows, planDate);
+    } catch (err) {
+      pushToast({ type: 'error', title: '列印失敗', message: errorMessage(err, '請確認張數後再試') });
+    }
   }
 
   function printBoth() {
@@ -486,15 +509,16 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
-  function rowsForPickupRecord(record: PickupRecord) {
-    return data.pickupRecordItems
+  function rowsForPickupRecord(record: PickupRecord): SignaturePrintRow[] {
+    const rows: SignaturePrintRow[] = [];
+    data.pickupRecordItems
       .filter((item) => item.record_id === record.id)
-      .map((recordItem) => {
+      .forEach((recordItem) => {
         const caseRow = data.cases.find((caseEntry) => caseEntry.id === recordItem.case_id);
-        if (!caseRow) return null;
-        return { caseRow, appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id) };
-      })
-      .filter((row): row is { caseRow: ArcCase; appItem?: ApplicationItem } => Boolean(row));
+        if (!caseRow) return;
+        rows.push({ caseRow, appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id) });
+      });
+    return rows;
   }
 
   function printRecordSignature(record: PickupRecord) {
