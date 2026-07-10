@@ -1116,3 +1116,24 @@ input[type="checkbox"] {
 }
 .supplement-button:hover { background: #ffe9ad; }
 .supplement-button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* V51 財務查詢與金額統計 */
+.finance-transaction-top { order: 0; }
+.stats-money-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.stats-money-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 118px;
+  justify-content: center;
+}
+.stats-money-card span { color: var(--text-muted, #667085); font-weight: 700; }
+.stats-money-card strong { font-size: clamp(24px, 3vw, 36px); line-height: 1.2; }
+.stats-money-card small { color: var(--text-muted, #667085); }
+@media (max-width: 760px) {
+  .stats-money-summary { grid-template-columns: 1fr; }
+}

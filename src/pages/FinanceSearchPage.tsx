@@ -90,6 +90,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
   const [keyword, setKeyword] = useState('');
   const [month, setMonth] = useState('');
   const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
+  const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [editingDetail, setEditingDetail] = useState<{ batch: PaymentBatch; row: FinanceBatchDetailRow } | null>(null);
   const [detailDraft, setDetailDraft] = useState<DetailEditDraft>({ employer_name: '', worker_name: '', group_no: '', entry_date: '', application_date: '', application_item_id: '', amount: '', reason: '' });
 
@@ -295,6 +296,8 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
   ];
 
 
+  const visibleBalanceTransactionRows = showAllTransactions ? balanceTransactionRows : balanceTransactionRows.slice(0, 10);
+
   const transactionColumns = [
     { key: 'broker', title: '仲介', render: (row: BalanceTransactionRow) => row.brokerName },
     { key: 'account', title: '帳戶名稱', render: (row: BalanceTransactionRow) => row.accountName },
@@ -309,6 +312,17 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
   return (
     <div className="page-content finance-query-page">
       <PageHeader title="財務查詢" description="已完成對帳的繳費批次會在此查詢，可展開查看批次內案件明細；管理員、會計與行政可修改明細，僅管理員可刪除。" />
+      <section className="card full-width-card no-compress finance-transaction-query-card finance-transaction-top">
+        <div className="toolbar-row">
+          <div>
+            <h2>餘額異動紀錄</h2>
+            <p className="subtle-text">最近異動優先顯示；此區只供查看，不提供直接修改餘額。</p>
+          </div>
+          {balanceTransactionRows.length > 10 ? <button type="button" className="secondary-button" onClick={() => setShowAllTransactions((current) => !current)}>{showAllTransactions ? '只顯示最近 10 筆' : `查看更多（共 ${balanceTransactionRows.length} 筆）`}</button> : null}
+        </div>
+        <DataTable columns={transactionColumns} rows={visibleBalanceTransactionRows} rowKey={(row) => row.txn.id} emptyText="目前沒有餘額異動紀錄。" />
+      </section>
+
       <section className="card full-width-card no-compress finance-batch-query-card">
         <div className="search-toolbar finance-toolbar">
           <SearchInput id="financeKeywordSearch" value={keyword} onCommit={setKeyword} placeholder="批次編號 / 繳款人 / 仲介 / 帳戶 / 雇主 / 工人 / 團號 / 申請項目" />
@@ -321,7 +335,7 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
               <article className="finance-batch-card" key={row.batch.id}>
                 <div className="finance-batch-summary">
                   <div className="finance-batch-title">
-                    <button type="button" className="link-button batch-expand-button" onClick={() => toggleDetails(row.batch.id)}>{isExpanded ? '收合明細' : '查看明細'}</button>
+                    <button type="button" className="link-button batch-expand-button" onClick={() => toggleDetails(row.batch.id)}>{isExpanded ? '收合' : '展開'}</button>
                     <strong>{row.batch.batch_no}</strong>
                     <BatchStatusBadge status={row.batch.status} />
                   </div>
@@ -373,11 +387,6 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
         </div>
       </section>
 
-      <section className="card full-width-card no-compress finance-transaction-query-card">
-        <h2>帳戶餘額異動紀錄</h2>
-        <p className="subtle-text">顯示財務對帳確認與帳戶設定產生的餘額異動紀錄；此頁只供查看，不提供直接修改餘額。</p>
-        <DataTable columns={transactionColumns} rows={balanceTransactionRows} rowKey={(row) => row.txn.id} emptyText="目前沒有符合條件的餘額異動紀錄" />
-      </section>
 
       {editingDetail ? (
         <Modal title="修改財務查詢明細" onClose={() => setEditingDetail(null)}>

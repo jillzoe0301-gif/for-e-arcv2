@@ -3,6 +3,7 @@ import { DataTable } from '../components/DataTable';
 import { PageHeader } from '../components/PageHeader';
 import type { ArcData } from '../types';
 import { monthKey, todayTaipei, yearKey } from '../utils/date';
+import { formatMoney } from '../utils/number';
 
 interface HandlerTotalRow {
   year: string;
@@ -25,6 +26,12 @@ interface BrokerStatRow {
 }
 
 interface YearMonthRow {
+  year: string;
+  months: number[];
+  total: number;
+}
+
+interface YearMonthAmountRow {
   year: string;
   months: number[];
   total: number;
@@ -85,6 +92,24 @@ export function StatsPage({ data }: { data: ArcData }) {
     return [{ year, months, total: months.reduce((sum, count) => sum + count, 0) }];
   }, [statCases, year]);
 
+  const monthlyTotalAmount = useMemo(() => statCases
+    .filter((caseRow) => monthKey(caseRow.application_date) === selectedMonthKey)
+    .reduce((sum, caseRow) => sum + (Number.isFinite(Number(caseRow.amount)) ? Number(caseRow.amount) : 0), 0), [selectedMonthKey, statCases]);
+
+  const yearlyTotalAmount = useMemo(() => statCases
+    .filter((caseRow) => yearKey(caseRow.application_date) === year)
+    .reduce((sum, caseRow) => sum + (Number.isFinite(Number(caseRow.amount)) ? Number(caseRow.amount) : 0), 0), [statCases, year]);
+
+  const yearMonthAmountRows = useMemo<YearMonthAmountRow[]>(() => {
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const targetMonth = `${year}-${String(index + 1).padStart(2, '0')}`;
+      return statCases
+        .filter((caseRow) => monthKey(caseRow.application_date) === targetMonth)
+        .reduce((sum, caseRow) => sum + (Number.isFinite(Number(caseRow.amount)) ? Number(caseRow.amount) : 0), 0);
+    });
+    return [{ year, months, total: months.reduce((sum, amount) => sum + amount, 0) }];
+  }, [statCases, year]);
+
   const brokerRows = useMemo(() => data.brokers.map<BrokerStatRow>((broker) => ({
     brokerName: broker.name,
     monthCount: statCases.filter((caseRow) => caseRow.broker_id === broker.id && monthKey(caseRow.application_date) === selectedMonthKey).length,
@@ -109,6 +134,10 @@ export function StatsPage({ data }: { data: ArcData }) {
           <label className="inline-field"><span>月份</span><select value={month} onChange={(e) => setMonth(e.target.value)}>{Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0')).map((item) => <option key={item} value={item}>{Number(item)}月</option>)}</select></label>
         </div>
       </section>
+      <section className="stats-money-summary">
+        <div className="card stats-money-card"><span>本月總申請金額</span><strong>{formatMoney(monthlyTotalAmount)} 元</strong><small>{year} 年 {Number(month)} 月</small></div>
+        <div className="card stats-money-card"><span>本年總申請金額</span><strong>{formatMoney(yearlyTotalAmount)} 元</strong><small>{year} 年度</small></div>
+      </section>
       <section className="card full-width-card compact-table-card">
         <h2>每月每人申請總件數</h2>
         <DataTable columns={handlerColumns} rows={monthlyHandlerRows} rowKey={(row) => `${row.year}-${row.month}-${row.handler}`} emptyText="此月份沒有統計資料" />
@@ -132,6 +161,14 @@ export function StatsPage({ data }: { data: ArcData }) {
           ...Array.from({ length: 12 }, (_, index) => ({ key: `m${index + 1}`, title: `${index + 1}月`, render: (row: YearMonthRow) => row.months[index] })),
           { key: 'total', title: '年度合計', render: (row: YearMonthRow) => row.total }
         ]} rows={yearMonthRows} rowKey={(row) => row.year} emptyText="沒有年度數據" />
+      </section>
+      <section className="card full-width-card compact-table-card yearly-month-table">
+        <h2>年度每個月的申請金額</h2>
+        <DataTable columns={[
+          { key: 'year', title: '年度', render: (row: YearMonthAmountRow) => row.year },
+          ...Array.from({ length: 12 }, (_, index) => ({ key: `amount-m${index + 1}`, title: `${index + 1}月金額`, render: (row: YearMonthAmountRow) => formatMoney(row.months[index]) })),
+          { key: 'total', title: '年度總金額', render: (row: YearMonthAmountRow) => formatMoney(row.total) }
+        ]} rows={yearMonthAmountRows} rowKey={(row) => `amount-${row.year}`} emptyText="沒有年度金額數據" />
       </section>
       <section className="card full-width-card compact-table-card">
         <h2>各仲介的申請數據</h2>

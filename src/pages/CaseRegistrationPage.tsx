@@ -10,6 +10,7 @@ import { parseMoney } from '../utils/number';
 const DATE_ERROR = '申請日期格式不正確，請重新輸入。';
 const ENTRY_DATE_ERROR = '入境日格式不正確，請重新輸入。';
 const GROUP_NO_REQUIRED = '請輸入團號，團號為必填欄位。';
+const SUPPLEMENT_ARCHIVE_ITEMS = new Set(['新入境初次（紙本）', '報備不製證', '重入境許可']);
 
 const emptyRow: BatchCaseRow = {
   handler_name: '',
@@ -317,15 +318,21 @@ export function CaseRegistrationPage({
     }
     setSubmitting(true);
     try {
+      const itemName = data.applicationItems.find((item) => item.id === valid[0].application_item_id)?.name ?? '';
+      const directArchive = SUPPLEMENT_ARCHIVE_ITEMS.has(itemName);
       await createCases(valid, data, profile, {
-        forceStatus: 'pending_pickup',
-        note: '補登 / 待加入預計領件',
+        forceStatus: directArchive ? 'archive_registered' : 'pending_pickup',
+        note: directArchive ? '補登 / 查詢留存' : '補登 / 待加入預計領件',
         auditAction: '補登案件建立'
       });
-      pushToast({ type: 'success', title: '補登完成', message: '案件已加入傳真/領件待處理區。' });
+      pushToast({
+        type: 'success',
+        title: '補登完成',
+        message: directArchive ? '案件已直接移入案件查詢留存。' : '案件已加入傳真/領件待處理區。'
+      });
       setSingle(makeDefaultRow());
       await reload();
-      onGoFaxPickup?.();
+      if (!directArchive) onGoFaxPickup?.();
     } catch (err) {
       pushToast({ type: 'error', title: '補登失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
@@ -347,15 +354,36 @@ export function CaseRegistrationPage({
     }
     setSubmitting(true);
     try {
-      await createCases(valid, data, profile, {
-        forceStatus: 'pending_pickup',
-        note: '補登 / 待加入預計領件',
-        auditAction: valid.length > 1 ? '批次補登案件建立' : '補登案件建立'
+      const pickupRows = valid.filter((row) => {
+        const itemName = data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '';
+        return !SUPPLEMENT_ARCHIVE_ITEMS.has(itemName);
       });
-      pushToast({ type: 'success', title: '批次補登完成', message: `已補登 ${valid.length} 筆案件，並已加入傳真/領件待處理區。` });
+      const archiveRows = valid.filter((row) => {
+        const itemName = data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '';
+        return SUPPLEMENT_ARCHIVE_ITEMS.has(itemName);
+      });
+      if (pickupRows.length) {
+        await createCases(pickupRows, data, profile, {
+          forceStatus: 'pending_pickup',
+          note: '補登 / 待加入預計領件',
+          auditAction: valid.length > 1 ? '批次補登案件建立｜傳真領件' : '補登案件建立'
+        });
+      }
+      if (archiveRows.length) {
+        await createCases(archiveRows, data, profile, {
+          forceStatus: 'archive_registered',
+          note: '補登 / 查詢留存',
+          auditAction: valid.length > 1 ? '批次補登案件建立｜查詢留存' : '補登案件建立'
+        });
+      }
+      pushToast({
+        type: 'success',
+        title: '批次補登完成',
+        message: `已補登 ${valid.length} 筆：${pickupRows.length} 筆已加入傳真/領件，${archiveRows.length} 筆已直接移入案件查詢。`
+      });
       setRows(Array.from({ length: 10 }, makeDefaultRow));
       await reload();
-      onGoFaxPickup?.();
+      if (pickupRows.length) onGoFaxPickup?.();
     } catch (err) {
       pushToast({ type: 'error', title: '批次補登失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
