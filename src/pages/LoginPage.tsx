@@ -29,7 +29,7 @@ export function LoginPage() {
     <div className="login-page">
       <section className="login-card">
         <div className="login-brand">
-          <div className="brand-logo large">ARC</div>
+          <div className="brand-logo large"><img src="/arc-logo.png" alt="ARC" /></div>
           <div>
             <h1>ARC 居留證控管系統</h1>
             <p>案件登記・繳費・財務對帳・傳真領件・統計匯出</p>

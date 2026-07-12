@@ -1137,3 +1137,21 @@ input[type="checkbox"] {
 @media (max-width: 760px) {
   .stats-money-summary { grid-template-columns: 1fr; }
 }
+
+
+/* ARC V13.51.2 system logo update */
+.brand-logo {
+  overflow: hidden;
+  padding: 0;
+  background: #fff;
+  border: 1px solid rgba(255,255,255,.62);
+}
+.brand-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.brand-logo.large {
+  overflow: hidden;
+}

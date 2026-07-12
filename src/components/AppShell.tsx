@@ -82,7 +82,7 @@ export function AppShell({
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <div className="brand-logo">ARC</div>
+          <div className="brand-logo"><img src="/arc-logo.png" alt="ARC" /></div>
           <div>
             <strong>居留證控管</strong>
             <span>V13 Formal</span>
