@@ -87,7 +87,7 @@ function totalSignatureCopyCount(rows: SignaturePrintRow[]): number {
 
 function printShell(title: string, body: string) {
   return `<html><head><title>${escapeHtml(title)}</title><style>
-  @page{size:A4 portrait;margin:12mm;} body{font-family:"Microsoft JhengHei",Arial,sans-serif;color:#222;} h1{text-align:center;font-size:18pt;margin:0;} h2{font-size:14pt;margin:18px 0 8px;} table{width:100%;border-collapse:collapse;font-size:10pt;} th,td{border:1px solid #333;padding:4px 5px;text-align:center;} .small{font-size:8.5pt;} .footer{margin-top:18px;font-size:13pt;line-height:2;display:grid;grid-template-columns:1fr 1fr;} .station-info{text-align:center;font-size:8.5pt;margin:4px 0 10px;} .sign-row{font-size:13pt;margin:14px 0 20px;} .handler-section{break-inside:avoid;} .page-break{break-before:page;} .print-page{break-after:page;} .print-page:last-child{break-after:auto;}</style></head><body>${body}</body></html>`;
+  @page{size:A4 portrait;margin:5mm;} body{font-family:"Microsoft JhengHei",Arial,sans-serif;color:#222;} h1{text-align:center;font-size:18pt;margin:0;} h2{font-size:14pt;margin:18px 0 8px;} table{width:100%;border-collapse:collapse;font-size:10pt;} th,td{border:1px solid #333;padding:4px 5px;text-align:center;} .small{font-size:8.5pt;} .footer{margin-top:18px;font-size:13pt;line-height:2;display:grid;grid-template-columns:1fr 1fr;} .station-info{text-align:center;font-size:8.5pt;margin:4px 0 10px;} .sign-row{font-size:13pt;margin:14px 0 20px;} .handler-section{break-inside:avoid;} .page-break{break-before:page;} .print-page{break-after:page;} .print-page:last-child{break-after:auto;}</style></head><body>${body}</body></html>`;
 }
 
 export function printFaxPickupSheet(rows: PrintRow[], pickupDate: string, options: FaxPrintOptions = {}) {
