@@ -485,16 +485,33 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
-  function rowsForPickupRecord(record: PickupRecord): SignaturePrintRow[] {
-    const rows: SignaturePrintRow[] = [];
+  function rowsForPickupRecord(record: PickupRecord): PrintRow[] {
+    const rows: PrintRow[] = [];
     data.pickupRecordItems
       .filter((item) => item.record_id === record.id)
       .forEach((recordItem) => {
         const caseRow = data.cases.find((caseEntry) => caseEntry.id === recordItem.case_id);
         if (!caseRow) return;
-        rows.push({ caseRow, appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id) });
+        rows.push({
+          caseRow,
+          appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id),
+          brokerName: data.brokers.find((item) => item.id === caseRow.broker_id)?.name
+        });
       });
     return rows;
+  }
+
+  function printRecordFax(record: PickupRecord) {
+    const rows = rowsForPickupRecord(record);
+    if (!rows.length) {
+      pushToast({ type: 'warning', title: '此筆領件紀錄沒有可列印明細' });
+      return;
+    }
+    try {
+      printFaxPickupSheet(rows, record.pickup_date, printOptions());
+    } catch (err) {
+      pushToast({ type: 'error', title: '列印失敗', message: errorMessage(err, '請稍後再試') });
+    }
   }
 
   function printRecordSignature(record: PickupRecord) {
@@ -559,7 +576,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     { key: 'creator', title: '建立人', render: (row: PickupRecord) => row.created_by_name ?? '' },
     { key: 'count', title: '本次案件數', render: (row: PickupRecord) => `${row.case_count} 件` },
     { key: 'totalCopy', title: '本次總張數', render: (row: PickupRecord) => `${row.total_copy_count ?? totalCopyCountForRecord(row)} 張` },
-    { key: 'action', title: '操作', render: (row: PickupRecord) => <div className="action-stack horizontal compact-actions"><button className="secondary-button mini" onClick={() => printRecordSignature(row)}>列印簽收單</button>{canDeletePickupRecord(profile?.role) ? <button className="danger-link" onClick={() => setDeleteTarget(row)}>刪除</button> : null}</div> }
+    { key: 'action', title: '操作', render: (row: PickupRecord) => <div className="action-stack horizontal compact-actions"><button className="secondary-button mini" onClick={() => printRecordFax(row)}>補印傳真領件單</button><button className="secondary-button mini" onClick={() => printRecordSignature(row)}>列印簽收單</button>{canDeletePickupRecord(profile?.role) ? <button className="danger-link" onClick={() => setDeleteTarget(row)}>刪除</button> : null}</div> }
   ];
 
   return (
