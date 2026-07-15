@@ -18,6 +18,7 @@ import type { ArcCase, ArcData, BankAccount, PaymentBatch, PaymentBatchItem, Pro
 import { displayDateTime, formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
 import { rowMatchesKeyword } from '../utils/search';
+import { sortCasesByApplicationDateAndGroup } from '../utils/sort';
 import { canAdjustFinanceConfirmBalance, canCompleteFinanceBatch, canDeleteData, canEditFinanceDetail, canModifyFinanceBatchDate } from '../utils/permissions';
 
 type AccountBalanceRow = {
@@ -111,12 +112,16 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const batchItems = selectedBatch ? data.batchItems.filter((item) => item.batch_id === selectedBatch.id) : [];
   const details = batchItems
     .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) }))
-    .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
+    .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow))
+    .sort((a, b) => {
+      const sorted = sortCasesByApplicationDateAndGroup([a.caseRow, b.caseRow]);
+      return sorted[0].id === a.caseRow.id ? -1 : 1;
+    });
 
   const addableCases = useMemo(() => {
     if (!selectedBatch) return [];
     const existingCaseIds = new Set(details.map((entry) => entry.caseRow.id));
-    return data.cases
+    return sortCasesByApplicationDateAndGroup(data.cases
       .filter((caseRow) => caseRow.status === 'pending_payment' && !caseRow.payment_batch_id && !caseRow.payment_account_id)
       .filter((caseRow) => caseRow.broker_id === selectedBatch.broker_id)
       .filter((caseRow) => !existingCaseIds.has(caseRow.id))
@@ -128,8 +133,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
         data.applicationItems.find((item) => item.id === caseRow.application_item_id)?.name,
         caseRow.handler_name,
         data.brokers.find((broker) => broker.id === caseRow.broker_id)?.name
-      ]))
-      .sort((a, b) => String(a.application_date).localeCompare(String(b.application_date)) || String(a.case_no).localeCompare(String(b.case_no), 'zh-Hant', { numeric: true }));
+      ])));
   }, [addCaseKeyword, data.applicationItems, data.brokers, data.cases, details, selectedBatch]);
 
   const accountRows = useMemo<AccountBalanceRow[]>(() => data.accounts

@@ -1,4 +1,4 @@
-import type { BrokerCompany, PersonOption } from '../types';
+import type { ArcCase, BrokerCompany, PersonOption } from '../types';
 
 export const agencyOrder = ['灃康', '乾坤', '灃禾'];
 export const handlerOrder = ['嘉陽', '佩珊', '詩涵', '奕君', '晏婷', '林莞'];
@@ -26,4 +26,19 @@ export function sortBrokers<T extends BrokerCompany>(items: T[]): T[] {
 
 export function sortPeople<T extends PersonOption>(items: T[]): T[] {
   return [...items].sort((a, b) => handlerRank(a) - handlerRank(b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name), 'zh-Hant'));
+}
+
+
+function normalizedSortDate(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  return raw || '9999-12-31';
+}
+
+/** 依申請日、團號排序；空白申請日置底，最後以案件編號穩定排序。 */
+export function sortCasesByApplicationDateAndGroup<T extends ArcCase>(items: T[]): T[] {
+  return [...items].sort((a, b) =>
+    normalizedSortDate(a.application_date).localeCompare(normalizedSortDate(b.application_date)) ||
+    String(a.group_no ?? '').localeCompare(String(b.group_no ?? ''), 'zh-Hant', { numeric: true, sensitivity: 'base' }) ||
+    String(a.case_no ?? '').localeCompare(String(b.case_no ?? ''), 'zh-Hant', { numeric: true, sensitivity: 'base' })
+  );
 }

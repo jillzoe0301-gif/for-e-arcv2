@@ -12,6 +12,7 @@ import { todayTaipei } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
 import { canDeleteData } from '../utils/permissions';
 import { rowMatchesKeyword } from '../utils/search';
+import { sortCasesByApplicationDateAndGroup } from '../utils/sort';
 
 function strictPaymentAmount(value: unknown): number | null {
   const raw = String(value ?? '').normalize('NFKC').trim();
@@ -61,9 +62,9 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   const [paymentMetaByBroker, setPaymentMetaByBroker] = useState<Record<string, BrokerPaymentMeta>>({});
   const [submittingBrokerId, setSubmittingBrokerId] = useState<string | null>(null);
 
-  const pendingCases = useMemo(() => data.cases.filter((caseRow) =>
+  const pendingCases = useMemo(() => sortCasesByApplicationDateAndGroup(data.cases.filter((caseRow) =>
     caseRow.status === 'pending_payment' && rowMatchesKeyword(keyword, [caseRow.employer_name, caseRow.worker_name, caseRow.group_no, caseRow.case_no])
-  ), [data.cases, keyword]);
+  )), [data.cases, keyword]);
 
   const cancelledCases = useMemo(() => data.cases.filter((caseRow) =>
     caseRow.status === 'cancelled' && rowMatchesKeyword(keyword, [caseRow.employer_name, caseRow.worker_name, caseRow.group_no, caseRow.case_no])
