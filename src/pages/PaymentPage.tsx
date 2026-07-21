@@ -61,6 +61,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
   const [accountIdsByBroker, setAccountIdsByBroker] = useState<Record<string, string>>({});
   const [paymentMetaByBroker, setPaymentMetaByBroker] = useState<Record<string, BrokerPaymentMeta>>({});
   const [submittingBrokerId, setSubmittingBrokerId] = useState<string | null>(null);
+  const [movingBrokerId, setMovingBrokerId] = useState<string | null>(null);
 
   const pendingCases = useMemo(() => sortCasesByApplicationDateAndGroup(data.cases.filter((caseRow) =>
     caseRow.status === 'pending_payment' && rowMatchesKeyword(keyword, [caseRow.employer_name, caseRow.worker_name, caseRow.group_no, caseRow.case_no])
@@ -233,6 +234,47 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     }
   }
 
+  async function moveSelectedToFaxPickup(brokerId: string) {
+    if (!profile || !['admin', 'staff'].includes(profile.role)) {
+      pushToast({ type: 'warning', title: '您沒有移入傳真/領件的權限。' });
+      return;
+    }
+    const broker = data.brokers.find((item) => item.id === brokerId);
+    const selectedCases = pendingCases.filter((caseRow) => caseRow.broker_id === brokerId && selectedIds.includes(caseRow.id));
+    if (!selectedCases.length) {
+      pushToast({ type: 'warning', title: `請先勾選${broker?.name ?? '此仲介'}要移入傳真/領件的案件` });
+      return;
+    }
+    if (!window.confirm(`確定將已選取的 ${selectedCases.length} 筆案件標記為「無須繳費」並移入傳真/領件嗎？`)) return;
+
+    setMovingBrokerId(brokerId);
+    let successCount = 0;
+    const failed: string[] = [];
+    try {
+      for (const caseRow of selectedCases) {
+        try {
+          await moveCaseFromPaymentToFaxPickup(caseRow, profile);
+          successCount += 1;
+        } catch (err) {
+          failed.push(`${caseRow.case_no}：${err instanceof Error ? err.message : '移入失敗'}`);
+        }
+      }
+      setSelectedIds((ids) => ids.filter((id) => !selectedCases.some((caseRow) => caseRow.id === id)));
+      if (successCount) {
+        pushToast({
+          type: failed.length ? 'warning' : 'success',
+          title: `已將 ${successCount} 筆案件移入傳真/領件`,
+          message: failed.length ? `另有 ${failed.length} 筆未完成：${failed.join('；')}` : '所選案件已標記為無須繳費，不會建立繳費批次。'
+        });
+      } else {
+        pushToast({ type: 'error', title: '選取案件皆未能移入傳真/領件', message: failed.join('；') });
+      }
+      await reload();
+    } finally {
+      setMovingBrokerId(null);
+    }
+  }
+
   async function confirmCancel() {
     if (!cancelTarget) return;
     if (!cancelReason.trim()) return pushToast({ type: 'warning', title: '請輸入取消原因' });
@@ -316,7 +358,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     { key: 'item', title: '申請項目', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '' },
     { key: 'date', title: '申請日 / 收費日期', render: (row: ArcCase) => row.application_date ?? '' },
     { key: 'amount', title: '金額', render: (row: ArcCase) => <div className="amount-edit-wrap"><input className={`mini-input payment-amount-field ${amountErrors[row.id] ? 'error' : ''}`} inputMode="decimal" value={amountDrafts[row.id] ?? String(row.amount ?? 0)} onChange={(event) => changeAmount(row, event.target.value)} onBlur={() => saveAmount(row)} disabled={!profile} />{amountErrors[row.id] ? <span className="inline-error">{amountErrors[row.id]}</span> : null}</div> },
-    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal">{profile && ['admin', 'staff'].includes(profile.role) ? <button className="secondary-button mini" type="button" onClick={() => moveToFaxPickup(row)}>移入傳真/領件</button> : null}<button className="danger-link" type="button" onClick={() => setCancelTarget(row)}>取消繳費</button>{canDeleteData(profile?.role) ? <button className="danger-link" type="button" onClick={() => removePending(row)}>刪除</button> : null}</div> }
+    { key: 'action', title: '操作', render: (row: ArcCase) => <div className="action-stack horizontal">{profile && ['admin', 'staff'].includes(profile.role) ? <button className="secondary-button mini" type="button" onClick={() => moveToFaxPickup(row)}>無須繳費</button> : null}<button className="danger-link" type="button" onClick={() => setCancelTarget(row)}>取消繳費</button>{canDeleteData(profile?.role) ? <button className="danger-link" type="button" onClick={() => removePending(row)}>刪除</button> : null}</div> }
   ];
 
   const cancelledColumns = [
@@ -397,7 +439,8 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
                 <div className="broker-payment-buttons">
                   <button className="secondary-button" type="button" onClick={() => selectBrokerCases(broker.id)}>本區一鍵勾選</button>
                   <button className="ghost-button" type="button" onClick={() => clearBrokerSelection(broker.id)}>本區取消</button>
-                  <button className="primary-button" onClick={() => submitBrokerBatch(broker.id)} disabled={submittingBrokerId === broker.id}>{submittingBrokerId === broker.id ? '建立中...' : `${broker.name} 繳費扣款`}</button>
+                  {profile && ['admin', 'staff'].includes(profile.role) ? <button className="secondary-button" type="button" onClick={() => moveSelectedToFaxPickup(broker.id)} disabled={movingBrokerId === broker.id || selectedCases.length === 0}>{movingBrokerId === broker.id ? '移入中...' : `無須繳費｜移入傳真/領件（${selectedCases.length}）`}</button> : null}
+                  <button className="primary-button" onClick={() => submitBrokerBatch(broker.id)} disabled={submittingBrokerId === broker.id || movingBrokerId === broker.id}>{submittingBrokerId === broker.id ? '建立中...' : `${broker.name} 繳費扣款`}</button>
                 </div>
               </div>
 
