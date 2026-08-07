@@ -124,7 +124,6 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     .filter((group) => group.cases.length > 0), [accountIdsByBroker, amountDrafts, data.accounts, data.brokers, pendingCases, selectedIds]);
 
   async function copyAccount(account: BankAccount) {
-    setAccountIdsByBroker((current) => ({ ...current, [account.broker_id]: account.id }));
     try {
       await navigator.clipboard.writeText(account.account_no);
       pushToast({ type: 'success', title: '已複製銀行帳號', message: account.account_no });
@@ -422,10 +421,10 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
               {accounts.length ? (
                 <div className="broker-account-list">
                   {accounts.map((account) => (
-                    <button type="button" className={`balance-card copy-card ${account.id === selectedAccountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號並選定本區扣款帳號">
+                    <button type="button" className={`balance-card copy-card ${account.id === selectedAccountId ? 'selected' : ''}`} key={account.id} onClick={() => copyAccount(account)} title="點擊複製銀行帳號">
                       <span>{accountLabel(account, data, !hideBalance)}{account.is_default ? '｜預設' : ''}</span>
                       {!hideBalance ? <strong>{formatMoney(account.current_balance)}</strong> : null}
-                      <small>點擊複製帳號 / 選定本區扣款帳號</small>
+                      <small>點擊複製帳號</small>
                     </button>
                   ))}
                 </div>
