@@ -448,53 +448,27 @@ export function CaseRegistrationPage({
       </div>
 
       {mode === 'single' ? (
-        <form className="card single-case-form" onSubmit={submitSingle}>
-          <div className="single-case-section">
-            <div className="single-case-section-title"><strong>承辦與案件歸屬</strong><span>先選承辦、仲介與團號</span></div>
-            <div className="single-case-grid single-case-grid-3">
-              {(['handler_name', 'broker_id', 'group_no'] as Array<keyof BatchCaseRow>).map((key) => {
-                const column = batchColumns.find((item) => item.key === key)!;
-                return <label key={key}><span>{key === 'group_no' ? '團號 *' : column.label}</span>{renderField(single, updateSingle, key, -1)}</label>;
-              })}
-            </div>
+        <form className="card full-width-card" onSubmit={submitSingle}>
+          <div className="table-wrap batch-grid-wrap">
+            <table className="data-table batch-table">
+              <thead>
+                <tr>
+                  {batchColumns.map((column) => <th key={column.key}>{column.key === 'group_no' ? '團號 *' : column.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className={single.error ? 'row-error' : ''}>
+                  {batchColumns.map((column) => (
+                    <td key={column.key}>{renderField(single, updateSingle, column.key, -1)}</td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
           </div>
-
-          <div className="single-case-section">
-            <div className="single-case-section-title"><strong>雇主與工人</strong><span>主要識別資料放在同一區，方便連續輸入</span></div>
-            <div className="single-case-grid single-case-grid-2">
-              {(['employer_name', 'worker_name'] as Array<keyof BatchCaseRow>).map((key) => {
-                const column = batchColumns.find((item) => item.key === key)!;
-                return <label key={key}><span>{column.label}</span>{renderField(single, updateSingle, key, -1)}</label>;
-              })}
-            </div>
-          </div>
-
-          <div className="single-case-section single-case-section-highlight">
-            <div className="single-case-section-title"><strong>申請內容</strong><span>申請項目、金額與張數集中處理</span></div>
-            <div className="single-case-grid single-case-grid-3">
-              {(['application_item_id', 'amount', 'copy_count'] as Array<keyof BatchCaseRow>).map((key) => {
-                const column = batchColumns.find((item) => item.key === key)!;
-                return <label key={key}><span>{column.label}</span>{renderField(single, updateSingle, key, -1)}</label>;
-              })}
-            </div>
-          </div>
-
-          <div className="single-case-section">
-            <div className="single-case-section-title"><strong>日期</strong><span>入境日與申請日放在一起，皆可快速帶入今天</span></div>
-            <div className="single-case-grid single-case-grid-2">
-              {(['entry_date', 'application_date'] as Array<keyof BatchCaseRow>).map((key) => {
-                const column = batchColumns.find((item) => item.key === key)!;
-                return <label key={key}><span>{column.label}</span>{renderField(single, updateSingle, key, -1)}</label>;
-              })}
-            </div>
-          </div>
-
-          {single.error ? <div className="inline-error">{single.error}</div> : null}
-          <div className="single-case-actions">
-            <div className="single-case-actions-left">
-              <button className="ghost-button" type="button" onClick={resetSingle} disabled={submitting}>清除內容</button>
-            </div>
-            <div className="single-case-actions-right">
+          {single.error ? <div className="inline-error" style={{ margin: '10px 16px 0' }}>{single.error}</div> : null}
+          <div className="toolbar-row" style={{ padding: '14px 16px', justifyContent: 'space-between' }}>
+            <button className="ghost-button" type="button" onClick={resetSingle} disabled={submitting}>清除內容</button>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button className="secondary-button" type="button" onClick={submitOnsite} disabled={submitting}>現場申請</button>
               <button className="supplement-button" type="button" onClick={submitSupplementSingle} disabled={submitting}>補登</button>
               <button className="primary-button" disabled={submitting}>送出登記</button>
