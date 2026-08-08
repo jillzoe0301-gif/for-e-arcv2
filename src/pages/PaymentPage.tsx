@@ -381,7 +381,6 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
     <div className="page-content payment-page">
       <PageHeader title="居留證繳費" description="待繳案件依仲介分區顯示；每個仲介區塊可獨立選帳戶、勾選與扣款。" />
       <AnnouncementBanner items={data.announcements} page="居留證繳費" />
-      <div className="payment-fixed-warning">乾坤、灃禾繳費前請先與財務確認。</div>
       <section className="card full-width-card payment-search-card">
         <div className="search-toolbar payment-search-toolbar">
           <SearchInput id="pendingPaymentSearch" value={keyword} onCommit={setKeyword} placeholder="搜尋待繳案件：雇主、工人、團號、案件編號" />
@@ -398,7 +397,7 @@ export function PaymentPage({ data, profile, reload }: { data: ArcData; profile:
             <section className={`broker-payment-card ${brokerToneClass(broker.name)}`} key={broker.id}>
               <div className="broker-payment-head">
                 <div>
-                  <h2>{broker.name}</h2>
+                  <h2>{broker.name}{isNoBalanceBrokerName(broker.name) ? <span className="account-warning" style={{ marginLeft: 12, fontSize: '0.72em', fontWeight: 700 }}>繳費前請先與財務確認。</span> : null}</h2>
                   <p>本區只顯示 {broker.name} 的待繳案件，扣款只會使用本區選定帳戶。</p>
                 </div>
                 <div className="broker-payment-metrics">
