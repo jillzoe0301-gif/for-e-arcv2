@@ -18,7 +18,7 @@ const allPages: PageKey[] = [
   'announcements'
 ];
 
-const financePages: PageKey[] = ['dashboard', 'financeConfirm', 'financeSearch', 'export'];
+const financePages: PageKey[] = ['dashboard', 'financeConfirm', 'financeSearch', 'export', 'brokersAccounts', 'settings'];
 
 const pageRoles: Record<PageKey, Role[]> = allPages.reduce((result, page) => {
   result[page] = ['admin', 'staff'];

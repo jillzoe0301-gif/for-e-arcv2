@@ -12,8 +12,11 @@ import { canManageAccounts } from '../utils/permissions';
 import { formatMoney, parseMoney } from '../utils/number';
 import { rowMatchesKeyword } from '../utils/search';
 import { roleLabels } from '../utils/status';
+import { AnnouncementsPage } from './AnnouncementsPage';
+import { ExportPage } from './ExportPage';
+import { BrokersAccountsPage } from './BrokersAccountsPage';
 
-type SettingTab = 'accounts' | 'people' | 'items' | 'fees' | 'brokers' | 'bankAccounts' | 'fax' | 'reminders' | 'print' | 'stations' | 'taskForces' | 'deleted';
+type SettingTab = 'accounts' | 'people' | 'items' | 'fees' | 'brokers' | 'bankAccounts' | 'fax' | 'reminders' | 'print' | 'stations' | 'taskForces' | 'announcements' | 'exportData' | 'brokerAccounts' | 'deleted';
 
 const tabs: Array<{ key: SettingTab; label: string; iconName: string }> = [
   { key: 'accounts', label: '帳號設定', iconName: '系統設定' },
@@ -27,15 +30,21 @@ const tabs: Array<{ key: SettingTab; label: string; iconName: string }> = [
   { key: 'print', label: '列印設定', iconName: '匯出資料' },
   { key: 'stations', label: '移民署服務站', iconName: '移民署服務站' },
   { key: 'taskForces', label: '專勤隊聯絡資訊', iconName: '專勤隊聯絡資訊' },
+  { key: 'announcements', label: '公告事項', iconName: '公告事項' },
+  { key: 'exportData', label: '匯出資料', iconName: '匯出資料' },
+  { key: 'brokerAccounts', label: '仲介與扣款帳號', iconName: '仲介與扣款帳號' },
   { key: 'deleted', label: '刪除救回資料', iconName: '操作紀錄' }
 ];
 
 export function SettingsPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
-  const [tab, setTab] = useState<SettingTab>('accounts');
+  const allowedTabs = profile?.role === 'finance'
+    ? tabs.filter((item) => ['exportData', 'brokerAccounts'].includes(item.key))
+    : tabs;
+  const [tab, setTab] = useState<SettingTab>(profile?.role === 'finance' ? 'exportData' : 'accounts');
   return (
     <div className="page-content settings-page">
       <PageHeader title="系統設定" description="管理員可新增、修改、停用、刪除設定項目；不使用系統設定總覽。" />
-      <div className="tabs wrap-tabs setting-tabs">{tabs.map((item) => <button key={item.key} className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}><IconImage name={item.iconName} size={18} />{item.label}</button>)}</div>
+      <div className="tabs wrap-tabs setting-tabs">{allowedTabs.map((item) => <button key={item.key} className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}><IconImage name={item.iconName} size={18} />{item.label}</button>)}</div>
       {tab === 'accounts' && <AccountSettings data={data} profile={profile} reload={reload} />}
       {tab === 'people' && <PeopleSettings data={data} profile={profile} reload={reload} />}
       {tab === 'items' && <ApplicationItemSettings data={data} profile={profile} reload={reload} />}
@@ -47,6 +56,9 @@ export function SettingsPage({ data, profile, reload }: { data: ArcData; profile
       {tab === 'print' && <JsonSetting title="列印設定" group="print" settingKey="fields" data={data} profile={profile} reload={reload} />}
       {tab === 'stations' && <ContactSettings title="移民署服務站" table="immigration_service_stations" rows={data.serviceStations} profile={profile} reload={reload} />}
       {tab === 'taskForces' && <ContactSettings title="專勤隊聯絡資訊" table="task_force_contacts" rows={data.taskForces} profile={profile} reload={reload} />}
+      {tab === 'announcements' && <div className="settings-embedded-page"><AnnouncementsPage data={data} profile={profile} reload={reload} /></div>}
+      {tab === 'exportData' && <div className="settings-embedded-page"><ExportPage data={data} /></div>}
+      {tab === 'brokerAccounts' && <div className="settings-embedded-page"><BrokersAccountsPage data={data} profile={profile} reload={reload} /></div>}
       {tab === 'deleted' && <DeletedRecords data={data} />}
     </div>
   );
