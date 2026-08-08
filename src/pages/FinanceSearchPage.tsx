@@ -333,23 +333,36 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
             const isExpanded = expandedBatchIds.has(row.batch.id);
             return (
               <article className="finance-batch-card" key={row.batch.id}>
-                <div className="finance-batch-summary">
-                  <div className="finance-batch-title">
-                    <button type="button" className="link-button batch-expand-button" onClick={() => toggleDetails(row.batch.id)}>{isExpanded ? '收合' : '展開'}</button>
-                    <strong>{row.batch.batch_no}</strong>
-                    <BatchStatusBadge status={row.batch.status} />
-                  </div>
-                  <div className="finance-batch-meta">
-                    <span><b>繳費日期</b>{formatDate(row.batch.payment_date)}</span>
-                    <span><b>繳款人</b>{row.batch.payer_name}</span>
-                    <span><b>仲介</b>{row.brokerName}</span>
-                    <span><b>扣款帳戶</b>{row.accountName || '未設定'}</span>
-                    <span><b>帳號後五碼</b>{row.accountLast5}</span>
-                    <span><b>批次案件數</b>{row.batch.case_count} 件</span>
-                    <span><b>批次總金額</b>{formatMoney(row.batch.total_amount)}</span>
-                    <span><b>對帳完成時間</b>{displayDateTime(row.batch.confirmed_at)}</span>
-                    <span><b>對帳確認人</b>{row.confirmedByName}</span>
-                    <span className="finance-note-meta"><b>備註</b>{row.batch.note ?? ''}</span>
+                <div className="finance-batch-summary finance-batch-summary-v2">
+                  <div className="finance-batch-main">
+                    <div className="finance-batch-title finance-batch-title-v2">
+                      <button type="button" className="link-button batch-expand-button" onClick={() => toggleDetails(row.batch.id)}>{isExpanded ? '收合' : '展開'}</button>
+                      <strong>{row.batch.batch_no}</strong>
+                      <BatchStatusBadge status={row.batch.status} />
+                    </div>
+                    <div className="finance-batch-lines">
+                      <div className="finance-batch-line">
+                        <div className="finance-batch-pair"><span className="finance-label">繳費日期</span><span className="finance-value">{formatDate(row.batch.payment_date) || '—'}</span></div>
+                        <div className="finance-batch-pair"><span className="finance-label">繳款人</span><span className="finance-value">{row.batch.payer_name || '—'}</span></div>
+                        <div className="finance-batch-pair"><span className="finance-label">仲介</span><span className="finance-value">{row.brokerName || '—'}</span></div>
+                      </div>
+                      <div className="finance-batch-line">
+                        <div className="finance-batch-pair finance-batch-pair-wide"><span className="finance-label">扣款帳戶</span><span className="finance-value">{row.accountName || '未設定'}</span></div>
+                        <div className="finance-batch-pair"><span className="finance-label">帳號後五碼</span><span className="finance-value">{row.accountLast5 || '—'}</span></div>
+                      </div>
+                      <div className="finance-batch-line">
+                        <div className="finance-batch-pair"><span className="finance-label">批次案件數</span><span className="finance-value emphasis">{row.batch.case_count} 件</span></div>
+                        <div className="finance-batch-pair"><span className="finance-label">批次總金額</span><span className="finance-value emphasis">{formatMoney(row.batch.total_amount)}</span></div>
+                      </div>
+                      <div className="finance-batch-line">
+                        <div className="finance-batch-pair"><span className="finance-label">對帳完成時間</span><span className="finance-value">{displayDateTime(row.batch.confirmed_at) || '—'}</span></div>
+                        <div className="finance-batch-pair"><span className="finance-label">對帳確認人</span><span className="finance-value">{row.confirmedByName || '—'}</span></div>
+                      </div>
+                      <div className="finance-batch-note-row">
+                        <span className="finance-label">備註</span>
+                        <span className="finance-value">{row.batch.note?.trim() || '—'}</span>
+                      </div>
+                    </div>
                   </div>
                   {canDeleteData(profile?.role) ? (
                     <button className="danger-button mini" type="button" onClick={() => removeBatch(row)}>刪除</button>

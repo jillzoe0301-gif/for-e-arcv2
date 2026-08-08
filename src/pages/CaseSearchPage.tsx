@@ -218,27 +218,87 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     return <CaseStatusBadge status={row.status} />;
   }
 
+
+  function brokerName(row: ArcCase) {
+    return data.brokers.find((item) => item.id === row.broker_id)?.name ?? '';
+  }
+
+  function applicationItemName(row: ArcCase) {
+    return data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '';
+  }
+
   const columns = [
-    { key: 'case_no', title: '案件編號', render: (row: ArcCase) => row.case_no },
-    { key: 'status', title: '狀態', render: (row: ArcCase) => statusCell(row) },
-    { key: 'broker', title: '仲介', render: (row: ArcCase) => data.brokers.find((item) => item.id === row.broker_id)?.name ?? '' },
-    { key: 'handler', title: '承辦', render: (row: ArcCase) => row.handler_name },
-    { key: 'employer', title: '雇主', render: (row: ArcCase) => row.employer_name },
-    { key: 'worker', title: '工人', render: (row: ArcCase) => row.worker_name },
-    { key: 'group', title: '團號', render: (row: ArcCase) => row.group_no ?? '' },
-    { key: 'item', title: '申請項目', render: (row: ArcCase) => data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '' },
-    { key: 'amount', title: '金額', render: (row: ArcCase) => formatMoney(row.amount) },
-    { key: 'receipt', title: '收件編號', render: (row: ArcCase) => row.receipt_no ?? '' },
-    { key: 'foreign', title: '外字五碼', render: (row: ArcCase) => row.foreign_no_last5 ?? '' },
-    { key: 'copy_count', title: '張數', render: (row: ArcCase) => row.copy_count ?? 1 },
-    { key: 'last4', title: '經手人後四碼', render: (row: ArcCase) => row.handler_last4 ?? '' },
-    { key: 'old_card', title: '舊卡', render: (row: ArcCase) => (row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? 'V' : '' },
-    { key: 'application_date', title: '申請日', render: (row: ArcCase) => formatDate(row.application_date) },
-    { key: 'payment_date', title: '收費日期', render: (row: ArcCase) => formatDate(row.payment_date) },
-    { key: 'fax_date', title: '傳真日期', render: (row: ArcCase) => formatDate(row.fax_date) },
-    { key: 'pickup_date', title: '領件日', render: (row: ArcCase) => formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) },
-    { key: 'edit', title: '修改', render: (row: ArcCase) => profile ? <button className="secondary-button mini" onClick={() => openEdit(row)}>修改</button> : null },
-    { key: 'delete', title: '刪除', render: (row: ArcCase) => canDeleteData(profile?.role) ? <button className="danger-link" onClick={() => remove(row)}>刪除</button> : null }
+    { key: 'status', title: '狀態', className: 'case-status-col', render: (row: ArcCase) => <div className="case-status-cell">{statusCell(row)}</div> },
+    { key: 'broker', title: '仲介', className: 'case-broker-col', render: (row: ArcCase) => <div className="case-broker-cell">{brokerName(row)}</div> },
+    {
+      key: 'case_info',
+      title: '案件資料',
+      className: 'case-main-col',
+      render: (row: ArcCase) => (
+        <div className="case-main-cell">
+          <div className="case-no-line">{row.case_no}</div>
+          <div className="case-name-line">{row.employer_name} / {row.worker_name}</div>
+          <div className="case-sub-line">團號：{row.group_no || '—'}</div>
+        </div>
+      )
+    },
+    {
+      key: 'receipt_meta',
+      title: '收件資料',
+      className: 'case-receipt-col',
+      render: (row: ArcCase) => (
+        <div className="case-stack-cell">
+          <div><span className="cell-label">收件編號</span><span className="cell-value">{row.receipt_no || '—'}</span></div>
+          <div><span className="cell-label">外字五碼</span><span className="cell-value">{row.foreign_no_last5 || '—'}</span></div>
+          <div><span className="cell-label">經手人編號</span><span className="cell-value">{row.handler_last4 || '—'}</span></div>
+        </div>
+      )
+    },
+    {
+      key: 'item_amount',
+      title: '申請項目 / 金額',
+      className: 'case-item-col',
+      render: (row: ArcCase) => (
+        <div className="case-item-cell">
+          <div className="case-item-name">{applicationItemName(row) || '—'}</div>
+          <div className="case-item-amount">{formatMoney(row.amount)}</div>
+          <div className="case-sub-line">張數：{row.copy_count ?? 1}{(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}</div>
+        </div>
+      )
+    },
+    {
+      key: 'apply_pay_dates',
+      title: '申請日 / 收費日期',
+      className: 'case-date-col',
+      render: (row: ArcCase) => (
+        <div className="case-stack-cell">
+          <div><span className="cell-label">申請日</span><span className="cell-value">{formatDate(row.application_date) || '—'}</span></div>
+          <div><span className="cell-label">收費日期</span><span className="cell-value">{formatDate(row.payment_date) || '—'}</span></div>
+        </div>
+      )
+    },
+    {
+      key: 'fax_pickup_dates',
+      title: '傳真日 / 領件日',
+      className: 'case-date-col',
+      render: (row: ArcCase) => (
+        <div className="case-stack-cell">
+          <div><span className="cell-label">傳真日</span><span className="cell-value">{formatDate(row.fax_date) || '—'}</span></div>
+          <div><span className="cell-label">領件日</span><span className="cell-value">{formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) || '—'}</span></div>
+        </div>
+      )
+    },
+    {
+      key: 'actions',
+      title: '操作',
+      className: 'case-action-col',
+      render: (row: ArcCase) => (
+        <div className="case-action-cell">
+          {profile ? <button className="secondary-button mini" onClick={() => openEdit(row)}>修改</button> : null}
+          {canDeleteData(profile?.role) ? <button className="danger-link" onClick={() => remove(row)}>刪除</button> : null}
+        </div>
+      )
+    }
   ];
 
   return (
