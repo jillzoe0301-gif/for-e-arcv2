@@ -18,6 +18,7 @@ import type { ArcCase, ArcData, BankAccount, PaymentBatch, PaymentBatchItem, Pro
 import { displayDateTime, formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
 import { rowMatchesKeyword } from '../utils/search';
+import { sortCasesByApplicationDateAndGroup } from '../utils/sort';
 import { canAdjustFinanceConfirmBalance, canCompleteFinanceBatch, canDeleteData, canEditFinanceDetail, canModifyFinanceBatchDate } from '../utils/permissions';
 
 type AccountBalanceRow = {
@@ -108,15 +109,20 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const selectedBatch = batches.find((item) => item.id === selectedBatchId) ?? batches[0];
   const selectedBroker = selectedBatch ? data.brokers.find((item) => item.id === selectedBatch.broker_id) : undefined;
   const selectedAccount = selectedBatch ? data.accounts.find((item) => item.id === selectedBatch.account_id) : undefined;
+  const selectedConfirmedBy = selectedBatch?.confirmed_by ? data.profiles.find((item) => item.id === selectedBatch.confirmed_by) : undefined;
   const batchItems = selectedBatch ? data.batchItems.filter((item) => item.batch_id === selectedBatch.id) : [];
   const details = batchItems
     .map((item) => ({ item, caseRow: data.cases.find((caseRow) => caseRow.id === item.case_id) }))
-    .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow));
+    .filter((entry): entry is { item: PaymentBatchItem; caseRow: ArcCase } => Boolean(entry.caseRow))
+    .sort((a, b) => {
+      const sorted = sortCasesByApplicationDateAndGroup([a.caseRow, b.caseRow]);
+      return sorted[0].id === a.caseRow.id ? -1 : 1;
+    });
 
   const addableCases = useMemo(() => {
     if (!selectedBatch) return [];
     const existingCaseIds = new Set(details.map((entry) => entry.caseRow.id));
-    return data.cases
+    return sortCasesByApplicationDateAndGroup(data.cases
       .filter((caseRow) => caseRow.status === 'pending_payment' && !caseRow.payment_batch_id && !caseRow.payment_account_id)
       .filter((caseRow) => caseRow.broker_id === selectedBatch.broker_id)
       .filter((caseRow) => !existingCaseIds.has(caseRow.id))
@@ -128,8 +134,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
         data.applicationItems.find((item) => item.id === caseRow.application_item_id)?.name,
         caseRow.handler_name,
         data.brokers.find((broker) => broker.id === caseRow.broker_id)?.name
-      ]))
-      .sort((a, b) => String(a.application_date).localeCompare(String(b.application_date)) || String(a.case_no).localeCompare(String(b.case_no), 'zh-Hant', { numeric: true }));
+      ])));
   }, [addCaseKeyword, data.applicationItems, data.brokers, data.cases, details, selectedBatch]);
 
   const accountRows = useMemo<AccountBalanceRow[]>(() => data.accounts
@@ -473,23 +478,60 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
         <DataTable columns={accountBalanceColumns} rows={accountRows} rowKey={(row) => row.account.id} emptyText="目前沒有啟用中的扣款帳戶" />
       </section>
 
-      <section className="card full-width-card">
-        <h2>待對帳繳費批次</h2>
-        <DataTable columns={batchColumns} rows={batches} rowKey={(row) => row.id} emptyText="目前沒有待對帳繳費批次" />
+      <section className="card full-width-card finance-batch-list-card">
+        <div className="section-title-row">
+          <div><h2>待對帳繳費批次</h2><p className="subtle-text">批次資訊依實際對帳順序排列，點「展開」查看案件明細。</p></div>
+        </div>
+        <div className="finance-confirm-batch-list">
+          {batches.length ? batches.map((row) => {
+            const broker = data.brokers.find((item) => item.id === row.broker_id);
+            const account = data.accounts.find((item) => item.id === row.account_id);
+            const confirmedBy = row.confirmed_by ? data.profiles.find((item) => item.id === row.confirmed_by) : undefined;
+            const expanded = selectedBatch?.id === row.id;
+            return (
+              <article key={row.id} className={`finance-confirm-batch-card ${expanded ? 'is-selected' : ''}`}>
+                <div className="finance-confirm-batch-topline">
+                  <button className="secondary-button mini" type="button" onClick={() => setSelectedBatchId(row.id)}>{expanded ? '已展開' : '展開'}</button>
+                  <strong className="finance-confirm-batch-no">{row.batch_no}</strong>
+                  <BatchStatusBadge status={row.status} />
+                  <div className="finance-confirm-top-meta"><span>對帳完成時間</span><b>{displayDateTime(row.confirmed_at) || '—'}</b></div>
+                  <div className="finance-confirm-top-meta"><span>對帳確認人</span><b>{confirmedBy?.display_name ?? row.confirmed_by ?? '—'}</b></div>
+                  {canDeleteData(profile?.role) ? <button className="danger-link finance-confirm-delete" onClick={() => removeBatch(row)}>刪除</button> : null}
+                </div>
+                <div className="finance-confirm-mainline">
+                  <div><span>繳費日期</span><strong>{formatDate(row.payment_date)}</strong></div>
+                  <div><span>繳款人</span><strong>{row.payer_name || '—'}</strong></div>
+                  <div className="wide"><span>扣款帳戶</span><strong>{account?.account_name ?? '未設定'}</strong></div>
+                  <div><span>仲介</span><strong>{broker?.name ?? '—'}</strong></div>
+                </div>
+                <div className="finance-confirm-metrics">
+                  <div><span>繳款件數</span><strong>{row.case_count} 件</strong></div>
+                  <div><span>繳款總金額</span><strong>{formatMoney(row.total_amount)} 元</strong></div>
+                </div>
+                <div className="finance-confirm-note"><span>備註</span><strong>{row.note || '—'}</strong></div>
+              </article>
+            );
+          }) : <div className="empty-state">目前沒有待對帳繳費批次</div>}
+        </div>
       </section>
 
       {selectedBatch ? (
         <section className="card full-width-card finance-confirm-detail-card">
-          <div className="finance-detail-head finance-detail-head-rich">
-            <div>
-              <span>繳費日期</span>
-              <strong>{formatDate(selectedBatch.payment_date)}</strong>
-              {mayChangeDate ? <button type="button" className="secondary-button mini inline-mini-button" onClick={() => setDateEditor({ batch: selectedBatch, value: formatDate(selectedBatch.payment_date) })}>修改日期</button> : null}
+          <div className="finance-selected-summary">
+            <div className="finance-selected-title">
+              <strong>{selectedBatch.batch_no}</strong>
+              <BatchStatusBadge status={selectedBatch.status} />
+              <span>對帳完成時間 <b>{displayDateTime(selectedBatch.confirmed_at) || '—'}</b></span>
+              <span>對帳確認人 <b>{selectedConfirmedBy?.display_name ?? selectedBatch.confirmed_by ?? '—'}</b></span>
             </div>
-            <div><span>繳款人</span><strong>{selectedBatch.payer_name}</strong></div>
-            <div><span>仲介</span><strong>{selectedBroker?.name ?? ''}</strong></div>
-            <div><span>扣款帳戶</span><strong>{selectedAccount?.account_name ?? '未設定'}</strong></div>
-            <div><span>該筆總金額</span><strong>{formatMoney(selectedBatchTotal)} 元</strong></div>
+            <div className="finance-selected-fields">
+              <div><span>繳費日期</span><strong>{formatDate(selectedBatch.payment_date)}</strong>{mayChangeDate ? <button type="button" className="secondary-button mini inline-mini-button" onClick={() => setDateEditor({ batch: selectedBatch, value: formatDate(selectedBatch.payment_date) })}>修改</button> : null}</div>
+              <div><span>繳款人</span><strong>{selectedBatch.payer_name || '—'}</strong></div>
+              <div><span>扣款帳戶</span><strong>{selectedAccount?.account_name ?? '未設定'}</strong></div>
+              <div><span>仲介</span><strong>{selectedBroker?.name ?? '—'}</strong></div>
+            </div>
+            <div className="finance-selected-metrics"><div><span>繳款件數</span><strong>{details.length} 件</strong></div><div><span>繳款總金額</span><strong>{formatMoney(selectedBatchTotal)} 元</strong></div></div>
+            <div className="finance-selected-note"><span>備註</span><strong>{selectedBatch.note || '—'}</strong></div>
           </div>
 
           <div className="receipt-path-note inline">收據存放路徑：Z:\行政\$移民署繳費</div>
