@@ -450,41 +450,18 @@ export function CaseRegistrationPage({
 
       {mode === 'single' ? (
         <form className="card full-width-card" onSubmit={submitSingle}>
-          <div style={{ padding: '16px 16px 10px' }}>
-            <div style={{ border: '1px solid #dfe7d6', borderRadius: 18, overflow: 'hidden', background: '#fbfcf8' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))', background: '#f3f7ee', borderBottom: '1px solid #e4ebdb' }}>
-                <div style={{ padding: '10px 16px', fontWeight: 800, color: '#315985' }}>承辦</div>
-                <div style={{ padding: '10px 16px', fontWeight: 800, color: '#315985', borderLeft: '1px solid #e4ebdb' }}>仲介別</div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))' }}>
-                <div style={{ padding: '12px 16px' }}>
-                  <select value={single.handler_name} onChange={(e) => updateSingle('handler_name', e.target.value)}>
-                    <option value="">請選擇</option>
-                    {handlers.map((item) => <option key={item.id} value={item.name}>{item.display_name}</option>)}
-                  </select>
-                </div>
-                <div style={{ padding: '12px 16px', borderLeft: '1px solid #eef2e8' }}>
-                  <select value={single.broker_id} onChange={(e) => updateSingle('broker_id', e.target.value)}>
-                    <option value="">請選擇</option>
-                    {brokers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="table-wrap batch-grid-wrap" style={{ borderTop: '1px solid #edf1e8', marginTop: 10 }}>
+          <div className="table-wrap batch-grid-wrap" style={{ paddingTop: 16 }}>
             <table className="data-table batch-table">
               <thead>
                 <tr>
-                  {batchColumns.filter((column) => column.key !== 'handler_name' && column.key !== 'broker_id').map((column) => (
+                  {batchColumns.map((column) => (
                     <th key={column.key}>{column.key === 'group_no' ? '團號 *' : column.label}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 <tr className={single.error ? 'row-error' : ''}>
-                  {batchColumns.filter((column) => column.key !== 'handler_name' && column.key !== 'broker_id').map((column) => (
+                  {batchColumns.map((column) => (
                     <td key={column.key}>{renderField(single, updateSingle, column.key, -1)}</td>
                   ))}
                 </tr>

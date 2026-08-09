@@ -57,16 +57,17 @@ function toEditForm(row: ArcCase): CaseEditForm {
   };
 }
 
-const blockStyle: CSSProperties = { display: 'grid', gap: 4, alignContent: 'start' };
-const softBlockStyle: CSSProperties = { display: 'grid', gap: 3, alignContent: 'start', minHeight: 72 };
-const tinyTextStyle: CSSProperties = { fontSize: 12, color: '#7b8494', fontWeight: 700, lineHeight: 1.35 };
-const strongTextStyle: CSSProperties = { fontSize: 14, color: '#1f2d3d', fontWeight: 800, lineHeight: 1.4 };
-const caseNoStyle: CSSProperties = { fontSize: 12, color: '#7b8494', fontWeight: 700, letterSpacing: '.2px' };
-const nameLineStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#1f2d3d', lineHeight: 1.45 };
-const subLineStyle: CSSProperties = { fontSize: 12, color: '#738098', lineHeight: 1.4 };
-const itemNameStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#315985', lineHeight: 1.4 };
-const amountStyle: CSSProperties = { fontSize: 20, fontWeight: 900, color: '#27548A', letterSpacing: '.2px' };
+const blockStyle: CSSProperties = { display: 'grid', gap: 8, alignContent: 'start', minWidth: 'max-content' };
+const cellSectionStyle: CSSProperties = { display: 'grid', gap: 6, alignContent: 'start', minHeight: 68, minWidth: 'max-content' };
+const tinyTextStyle: CSSProperties = { fontSize: 12, color: '#7b8494', fontWeight: 700, lineHeight: 1.35, whiteSpace: 'nowrap' };
+const strongTextStyle: CSSProperties = { fontSize: 14, color: '#1f2d3d', fontWeight: 800, lineHeight: 1.4, whiteSpace: 'nowrap' };
+const caseNoStyle: CSSProperties = { fontSize: 12, color: '#7b8494', fontWeight: 700, letterSpacing: '.2px', whiteSpace: 'nowrap' };
+const nameLineStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#1f2d3d', lineHeight: 1.45, whiteSpace: 'nowrap' };
+const subLineStyle: CSSProperties = { fontSize: 12, color: '#738098', lineHeight: 1.4, whiteSpace: 'nowrap' };
+const itemNameStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#315985', lineHeight: 1.4, whiteSpace: 'nowrap' };
+const amountStyle: CSSProperties = { fontSize: 20, fontWeight: 900, color: '#27548A', letterSpacing: '.2px', whiteSpace: 'nowrap' };
 const actionButtonStyle: CSSProperties = { minWidth: 72, justifyContent: 'center' };
+const inlineValueStyle: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 8, whiteSpace: 'nowrap' };
 
 export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -245,7 +246,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
 
   function labeledValue(label: string, value: string) {
     return (
-      <div style={blockStyle}>
+      <div style={inlineValueStyle} title={`${label}：${value || '—'}`}>
         <span style={tinyTextStyle}>{label}</span>
         <span style={strongTextStyle}>{value || '—'}</span>
       </div>
@@ -253,26 +254,36 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
   }
 
   const columns = [
-    { key: 'status', title: '狀態', className: 'case-status-col', render: (row: ArcCase) => <div style={{ display: 'flex', alignItems: 'center', minHeight: 56 }}>{statusCell(row)}</div> },
-    { key: 'broker', title: '仲介', className: 'case-broker-col', render: (row: ArcCase) => <div style={{ display: 'flex', alignItems: 'center', minHeight: 56, fontWeight: 800, color: '#315985' }}>{brokerName(row)}</div> },
+    {
+      key: 'status',
+      title: '狀態',
+      className: 'case-status-col',
+      render: (row: ArcCase) => <div style={{ display: 'flex', alignItems: 'center', minHeight: 56, whiteSpace: 'nowrap' }}>{statusCell(row)}</div>
+    },
+    {
+      key: 'broker',
+      title: '仲介',
+      className: 'case-broker-col',
+      render: (row: ArcCase) => <div style={{ display: 'flex', alignItems: 'center', minHeight: 56, fontWeight: 800, color: '#315985', whiteSpace: 'nowrap' }}>{brokerName(row)}</div>
+    },
     {
       key: 'case_info',
       title: '案件資料',
       className: 'case-main-col',
       render: (row: ArcCase) => (
-        <div style={softBlockStyle}>
-          <div style={caseNoStyle}>{row.case_no}</div>
-          <div style={nameLineStyle}>{row.employer_name} / {row.worker_name}</div>
-          <div style={subLineStyle}>團號：{row.group_no || '—'}</div>
+        <div style={cellSectionStyle}>
+          <div style={caseNoStyle} title={row.case_no}>{row.case_no}</div>
+          <div style={nameLineStyle} title={`${row.employer_name} / ${row.worker_name}`}>{row.employer_name} / {row.worker_name}</div>
+          <div style={subLineStyle} title={`團號：${row.group_no || '—'}`}>團號：{row.group_no || '—'}</div>
         </div>
       )
     },
     {
       key: 'handler_meta',
       title: '送件承辦 / 繳費承辦',
-      className: 'case-receipt-col',
+      className: 'case-handler-col',
       render: (row: ArcCase) => (
-        <div style={softBlockStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('送件承辦', row.handler_name || '—')}
           {labeledValue('繳費承辦', paymentHandlerName(row) || '—')}
         </div>
@@ -283,7 +294,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '收件資料',
       className: 'case-receipt-col',
       render: (row: ArcCase) => (
-        <div style={softBlockStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('收件編號', row.receipt_no || '—')}
           {labeledValue('外字五碼', row.foreign_no_last5 || '—')}
           {labeledValue('經手人編號', row.handler_last4 || '—')}
@@ -295,10 +306,10 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '申請項目 / 金額',
       className: 'case-item-col',
       render: (row: ArcCase) => (
-        <div style={softBlockStyle}>
-          <div style={itemNameStyle}>{applicationItemName(row) || '—'}</div>
-          <div style={amountStyle}>{formatMoney(row.amount)}</div>
-          <div style={subLineStyle}>張數：{row.copy_count ?? 1}{(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}</div>
+        <div style={cellSectionStyle}>
+          <div style={itemNameStyle} title={applicationItemName(row) || '—'}>{applicationItemName(row) || '—'}</div>
+          <div style={amountStyle} title={formatMoney(row.amount)}>{formatMoney(row.amount)}</div>
+          <div style={subLineStyle} title={`張數：${row.copy_count ?? 1}${(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}`}>張數：{row.copy_count ?? 1}{(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}</div>
         </div>
       )
     },
@@ -307,7 +318,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '申請日 / 收費日期',
       className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div style={softBlockStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('申請日', formatDate(row.application_date) || '—')}
           {labeledValue('收費日期', formatDate(row.payment_date) || '—')}
         </div>
@@ -318,7 +329,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '傳真日 / 領件日',
       className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div style={softBlockStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('傳真日', formatDate(row.fax_date) || '—')}
           {labeledValue('領件日', formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) || '—')}
         </div>
@@ -329,7 +340,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '操作',
       className: 'case-action-col',
       render: (row: ArcCase) => (
-        <div style={{ display: 'grid', gap: 8, alignContent: 'start', justifyItems: 'start' }}>
+        <div style={{ display: 'grid', gap: 8, alignContent: 'start', justifyItems: 'start', minWidth: 80 }}>
           {profile ? (
             <button type="button" className="secondary-button mini" style={actionButtonStyle} onClick={() => openEdit(row)}>
               修改
@@ -353,7 +364,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
           <SearchInput id="caseSearchInput" value={keyword} onCommit={setKeyword} placeholder="案件編號 / 雇主 / 工人 / 團號 / 申請項目 / 收件編號 / 外字五碼 / 送件承辦 / 繳費承辦" />
           <label className="inline-field"><span>狀態</span><select value={status} onChange={(e) => setStatus(e.target.value as CaseStatus | '')}><option value="">全部狀態</option>{Object.entries(caseStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         </div>
-        <div className="search-result-area">
+        <div className="search-result-area" style={{ overflowX: 'auto' }}>
           <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} emptyText="查無案件資料" />
         </div>
       </section>
