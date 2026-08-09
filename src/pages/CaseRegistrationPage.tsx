@@ -449,16 +449,37 @@ export function CaseRegistrationPage({
 
       {mode === 'single' ? (
         <form className="card full-width-card" onSubmit={submitSingle}>
-          <div className="table-wrap batch-grid-wrap">
+          <div style={{ padding: '16px 18px 6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(220px, 1fr)', gap: 16, maxWidth: 760 }}>
+              <label style={{ display: 'grid', gap: 7 }}>
+                <span style={{ fontWeight: 800, color: '#315985' }}>承辦</span>
+                <select value={single.handler_name} onChange={(e) => updateSingle('handler_name', e.target.value)}>
+                  <option value="">請選擇</option>
+                  {handlers.map((item) => <option key={item.id} value={item.name}>{item.display_name}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 7 }}>
+                <span style={{ fontWeight: 800, color: '#315985' }}>仲介別</span>
+                <select value={single.broker_id} onChange={(e) => updateSingle('broker_id', e.target.value)}>
+                  <option value="">請選擇</option>
+                  {brokers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="table-wrap batch-grid-wrap" style={{ borderTop: '1px solid #edf1e8', marginTop: 10 }}>
             <table className="data-table batch-table">
               <thead>
                 <tr>
-                  {batchColumns.map((column) => <th key={column.key}>{column.key === 'group_no' ? '團號 *' : column.label}</th>)}
+                  {batchColumns.filter((column) => column.key !== 'handler_name' && column.key !== 'broker_id').map((column) => (
+                    <th key={column.key}>{column.key === 'group_no' ? '團號 *' : column.label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 <tr className={single.error ? 'row-error' : ''}>
-                  {batchColumns.map((column) => (
+                  {batchColumns.filter((column) => column.key !== 'handler_name' && column.key !== 'broker_id').map((column) => (
                     <td key={column.key}>{renderField(single, updateSingle, column.key, -1)}</td>
                   ))}
                 </tr>
@@ -466,12 +487,31 @@ export function CaseRegistrationPage({
             </table>
           </div>
           {single.error ? <div className="inline-error" style={{ margin: '10px 16px 0' }}>{single.error}</div> : null}
-          <div className="toolbar-row" style={{ padding: '14px 16px', justifyContent: 'space-between' }}>
-            <button className="ghost-button" type="button" onClick={resetSingle} disabled={submitting}>清除內容</button>
+          <div className="toolbar-row" style={{ padding: '14px 16px 16px', justifyContent: 'space-between', borderTop: '1px solid #edf1e8', marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={resetSingle}
+              disabled={submitting}
+              style={{ minHeight: 44, padding: '0 22px', borderRadius: 12, border: '1px solid #cfd8cc', background: '#fff', color: '#44505d', fontWeight: 800 }}
+            >清除內容</button>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button className="secondary-button" type="button" onClick={submitOnsite} disabled={submitting}>現場申請</button>
-              <button className="supplement-button" type="button" onClick={submitSupplementSingle} disabled={submitting}>補登</button>
-              <button className="primary-button" disabled={submitting}>送出登記</button>
+              <button
+                type="button"
+                onClick={submitOnsite}
+                disabled={submitting}
+                style={{ minHeight: 44, padding: '0 22px', borderRadius: 12, border: '1px solid #9bc2ee', background: '#eef6ff', color: '#315f93', fontWeight: 800 }}
+              >現場申請</button>
+              <button
+                type="button"
+                onClick={submitSupplementSingle}
+                disabled={submitting}
+                style={{ minHeight: 44, padding: '0 22px', borderRadius: 12, border: '1px solid #e5b352', background: '#fff8e7', color: '#8a5b00', fontWeight: 800 }}
+              >補登</button>
+              <button
+                type="submit"
+                disabled={submitting}
+                style={{ minHeight: 44, padding: '0 24px', borderRadius: 12, border: '1px solid #2f6198', background: '#2f6198', color: '#fff', fontWeight: 800 }}
+              >送出登記</button>
             </div>
           </div>
         </form>
