@@ -235,10 +235,10 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '案件資料',
       className: 'case-main-col',
       render: (row: ArcCase) => (
-        <div className="case-main-cell">
-          <div className="case-no-line">{row.case_no}</div>
-          <div className="case-name-line">{row.employer_name} / {row.worker_name}</div>
-          <div className="case-sub-line">團號：{row.group_no || '—'}</div>
+        <div className="case-main-cell" style={{ display: 'grid', gap: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#748096', letterSpacing: '.01em' }}>{row.case_no}</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#24364d' }}>{row.employer_name} / {row.worker_name}</div>
+          <div style={{ fontSize: 13, color: '#7f8a9c' }}>團號：{row.group_no || '—'}</div>
         </div>
       )
     },
@@ -247,10 +247,13 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '收件資料',
       className: 'case-receipt-col',
       render: (row: ArcCase) => (
-        <div className="case-stack-cell">
-          <div><span className="cell-label">收件編號</span><span className="cell-value">{row.receipt_no || '—'}</span></div>
-          <div><span className="cell-label">外字五碼</span><span className="cell-value">{row.foreign_no_last5 || '—'}</span></div>
-          <div><span className="cell-label">經手人編號</span><span className="cell-value">{row.handler_last4 || '—'}</span></div>
+        <div style={{ display: 'grid', gap: 7, minWidth: 138 }}>
+          {[['收件編號', row.receipt_no], ['外字五碼', row.foreign_no_last5], ['經手人編號', row.handler_last4]].map(([label, value]) => (
+            <div key={String(label)} style={{ display: 'grid', gridTemplateColumns: '72px 1fr', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#8a95a5' }}>{label}</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#33445b' }}>{value || '—'}</span>
+            </div>
+          ))}
         </div>
       )
     },
@@ -259,10 +262,10 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '申請項目 / 金額',
       className: 'case-item-col',
       render: (row: ArcCase) => (
-        <div className="case-item-cell">
-          <div className="case-item-name">{applicationItemName(row) || '—'}</div>
-          <div className="case-item-amount">{formatMoney(row.amount)}</div>
-          <div className="case-sub-line">張數：{row.copy_count ?? 1}{(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}</div>
+        <div style={{ display: 'grid', gap: 4 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#285789' }}>{applicationItemName(row) || '—'}</div>
+          <div style={{ fontSize: 22, lineHeight: 1.1, fontWeight: 900, color: '#24568d' }}>{formatMoney(row.amount)}</div>
+          <div style={{ fontSize: 12, color: '#8792a4' }}>張數：{row.copy_count ?? 1}{(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}</div>
         </div>
       )
     },
@@ -271,9 +274,9 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '申請日 / 收費日期',
       className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div className="case-stack-cell">
-          <div><span className="cell-label">申請日</span><span className="cell-value">{formatDate(row.application_date) || '—'}</span></div>
-          <div><span className="cell-label">收費日期</span><span className="cell-value">{formatDate(row.payment_date) || '—'}</span></div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div><div style={{ fontSize: 12, color: '#8a95a5', marginBottom: 2 }}>申請日</div><div style={{ fontSize: 14, fontWeight: 700, color: '#33445b' }}>{formatDate(row.application_date) || '—'}</div></div>
+          <div><div style={{ fontSize: 12, color: '#8a95a5', marginBottom: 2 }}>收費日期</div><div style={{ fontSize: 14, fontWeight: 700, color: '#33445b' }}>{formatDate(row.payment_date) || '—'}</div></div>
         </div>
       )
     },
@@ -282,9 +285,9 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '傳真日 / 領件日',
       className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div className="case-stack-cell">
-          <div><span className="cell-label">傳真日</span><span className="cell-value">{formatDate(row.fax_date) || '—'}</span></div>
-          <div><span className="cell-label">領件日</span><span className="cell-value">{formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) || '—'}</span></div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div><div style={{ fontSize: 12, color: '#8a95a5', marginBottom: 2 }}>傳真日</div><div style={{ fontSize: 14, fontWeight: 700, color: '#33445b' }}>{formatDate(row.fax_date) || '—'}</div></div>
+          <div><div style={{ fontSize: 12, color: '#8a95a5', marginBottom: 2 }}>領件日</div><div style={{ fontSize: 14, fontWeight: 700, color: '#33445b' }}>{formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) || '—'}</div></div>
         </div>
       )
     },
@@ -293,9 +296,9 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '操作',
       className: 'case-action-col',
       render: (row: ArcCase) => (
-        <div className="case-action-cell">
-          {profile ? <button className="secondary-button mini" onClick={() => openEdit(row)}>修改</button> : null}
-          {canDeleteData(profile?.role) ? <button className="danger-link" onClick={() => remove(row)}>刪除</button> : null}
+        <div className="case-action-cell" style={{ display: 'grid', gap: 8, justifyItems: 'stretch', minWidth: 74 }}>
+          {profile ? <button type="button" onClick={() => openEdit(row)} style={{ height: 36, minWidth: 72, padding: '0 14px', borderRadius: 10, border: '1px solid #a8c8ee', background: '#eef6ff', color: '#315f93', fontWeight: 800, cursor: 'pointer' }}>修改</button> : null}
+          {canDeleteData(profile?.role) ? <button type="button" onClick={() => remove(row)} style={{ height: 36, minWidth: 72, padding: '0 14px', borderRadius: 10, border: '1px solid #efb2b2', background: '#fff3f3', color: '#d44949', fontWeight: 800, cursor: 'pointer' }}>刪除</button> : null}
         </div>
       )
     }

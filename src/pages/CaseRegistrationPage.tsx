@@ -56,8 +56,9 @@ export function CaseRegistrationPage({
   const firstAppItem = data.applicationItems.find((item) => item.is_enabled)?.id ?? '';
   const firstHandler = data.people.find((item) => item.show_as_handler && item.is_enabled)?.name ?? profile?.display_name ?? '';
   const makeDefaultRow = (): BatchCaseRow => ({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() });
+  const makeDefaultSingleRow = (): BatchCaseRow => ({ ...emptyRow, broker_id: '', application_item_id: firstAppItem, handler_name: '', application_date: todayTaipei() });
   const [mode, setMode] = useState<'single' | 'batch'>('single');
-  const [single, setSingle] = useState<BatchCaseRow>(() => makeDefaultRow());
+  const [single, setSingle] = useState<BatchCaseRow>(() => makeDefaultSingleRow());
   const [rows, setRows] = useState<BatchCaseRow[]>(() => Array.from({ length: 10 }, makeDefaultRow));
   const [batchFill, setBatchFill] = useState<BatchFill>({ handler_name: firstHandler, broker_id: firstBroker, employer_name: '', entry_date: '', application_date: todayTaipei() });
   const [submitting, setSubmitting] = useState(false);
@@ -72,7 +73,7 @@ export function CaseRegistrationPage({
   }
 
   function resetSingle() {
-    setSingle(makeDefaultRow());
+    setSingle(makeDefaultSingleRow());
     pushToast({ type: 'info', title: '已清除單筆案件內容' });
   }
 
@@ -274,7 +275,7 @@ export function CaseRegistrationPage({
     try {
       await createCases(valid, data, profile);
       pushToast({ type: 'success', title: '案件已登記' });
-      setSingle(makeDefaultRow());
+      setSingle(makeDefaultSingleRow());
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -298,7 +299,7 @@ export function CaseRegistrationPage({
         auditAction: '現場申請案件建立'
       });
       pushToast({ type: 'success', title: '現場申請已建立', message: '案件已直接帶入傳真/領件。' });
-      setSingle(makeDefaultRow());
+      setSingle(makeDefaultSingleRow());
       await reload();
       onGoFaxPickup?.();
     } catch (err) {
@@ -330,7 +331,7 @@ export function CaseRegistrationPage({
         title: '補登完成',
         message: directArchive ? '案件已直接移入案件查詢留存。' : '案件已加入傳真/領件待處理區。'
       });
-      setSingle(makeDefaultRow());
+      setSingle(makeDefaultSingleRow());
       await reload();
       if (!directArchive) onGoFaxPickup?.();
     } catch (err) {
