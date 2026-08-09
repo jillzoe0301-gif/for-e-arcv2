@@ -55,11 +55,11 @@ export function CaseRegistrationPage({
   const firstBroker = data.brokers.find((item) => item.is_enabled)?.id ?? '';
   const firstAppItem = data.applicationItems.find((item) => item.is_enabled)?.id ?? '';
   const firstHandler = data.people.find((item) => item.show_as_handler && item.is_enabled)?.name ?? profile?.display_name ?? '';
-  const makeDefaultRow = (): BatchCaseRow => ({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() });
-  const makeDefaultSingleRow = (): BatchCaseRow => ({ ...emptyRow, broker_id: '', application_item_id: firstAppItem, handler_name: '', application_date: todayTaipei() });
+  const makeBatchDefaultRow = (): BatchCaseRow => ({ ...emptyRow, broker_id: firstBroker, application_item_id: firstAppItem, handler_name: firstHandler, application_date: todayTaipei() });
+  const makeSingleDefaultRow = (): BatchCaseRow => ({ ...emptyRow, application_item_id: firstAppItem, application_date: todayTaipei() });
   const [mode, setMode] = useState<'single' | 'batch'>('single');
-  const [single, setSingle] = useState<BatchCaseRow>(() => makeDefaultSingleRow());
-  const [rows, setRows] = useState<BatchCaseRow[]>(() => Array.from({ length: 10 }, makeDefaultRow));
+  const [single, setSingle] = useState<BatchCaseRow>(() => makeSingleDefaultRow());
+  const [rows, setRows] = useState<BatchCaseRow[]>(() => Array.from({ length: 10 }, makeBatchDefaultRow));
   const [batchFill, setBatchFill] = useState<BatchFill>({ handler_name: firstHandler, broker_id: firstBroker, employer_name: '', entry_date: '', application_date: todayTaipei() });
   const [submitting, setSubmitting] = useState(false);
 
@@ -73,12 +73,12 @@ export function CaseRegistrationPage({
   }
 
   function resetSingle() {
-    setSingle(makeDefaultSingleRow());
+    setSingle(makeSingleDefaultRow());
     pushToast({ type: 'info', title: '已清除單筆案件內容' });
   }
 
   function resetBatchRows() {
-    setRows(Array.from({ length: 10 }, makeDefaultRow));
+    setRows(Array.from({ length: 10 }, makeBatchDefaultRow));
     pushToast({ type: 'info', title: '已清除批次送件內容' });
   }
 
@@ -91,7 +91,7 @@ export function CaseRegistrationPage({
   }
 
   function addRows() {
-    setRows((current) => [...current, ...Array.from({ length: 5 }, makeDefaultRow)]);
+    setRows((current) => [...current, ...Array.from({ length: 5 }, makeBatchDefaultRow)]);
   }
 
   function deleteRow(index: number) {
@@ -165,7 +165,7 @@ export function CaseRegistrationPage({
     const lines = text.replace(/\r/g, '').split('\n').filter((line) => line.length > 0);
     setRows((current) => {
       const next = [...current];
-      while (next.length < rowIndex + lines.length) next.push(makeDefaultRow());
+      while (next.length < rowIndex + lines.length) next.push(makeBatchDefaultRow());
       lines.forEach((line, lineOffset) => {
         const values = line.split('\t');
         values.forEach((value, colOffset) => {
@@ -275,7 +275,7 @@ export function CaseRegistrationPage({
     try {
       await createCases(valid, data, profile);
       pushToast({ type: 'success', title: '案件已登記' });
-      setSingle(makeDefaultSingleRow());
+      setSingle(makeSingleDefaultRow());
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -299,7 +299,7 @@ export function CaseRegistrationPage({
         auditAction: '現場申請案件建立'
       });
       pushToast({ type: 'success', title: '現場申請已建立', message: '案件已直接帶入傳真/領件。' });
-      setSingle(makeDefaultSingleRow());
+      setSingle(makeSingleDefaultRow());
       await reload();
       onGoFaxPickup?.();
     } catch (err) {
@@ -331,7 +331,7 @@ export function CaseRegistrationPage({
         title: '補登完成',
         message: directArchive ? '案件已直接移入案件查詢留存。' : '案件已加入傳真/領件待處理區。'
       });
-      setSingle(makeDefaultSingleRow());
+      setSingle(makeSingleDefaultRow());
       await reload();
       if (!directArchive) onGoFaxPickup?.();
     } catch (err) {
@@ -382,7 +382,7 @@ export function CaseRegistrationPage({
         title: '批次補登完成',
         message: `已補登 ${valid.length} 筆：${pickupRows.length} 筆已加入傳真/領件，${archiveRows.length} 筆已直接移入案件查詢。`
       });
-      setRows(Array.from({ length: 10 }, makeDefaultRow));
+      setRows(Array.from({ length: 10 }, makeBatchDefaultRow));
       await reload();
       if (pickupRows.length) onGoFaxPickup?.();
     } catch (err) {
@@ -408,7 +408,7 @@ export function CaseRegistrationPage({
     try {
       await createCases(valid, data, profile);
       pushToast({ type: 'success', title: `批次送件完成`, message: `已新增 ${valid.length} 筆案件。` });
-      setRows(Array.from({ length: 10 }, makeDefaultRow));
+      setRows(Array.from({ length: 10 }, makeBatchDefaultRow));
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '批次新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
@@ -450,22 +450,26 @@ export function CaseRegistrationPage({
 
       {mode === 'single' ? (
         <form className="card full-width-card" onSubmit={submitSingle}>
-          <div style={{ padding: '16px 18px 6px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(220px, 1fr)', gap: 16, maxWidth: 760 }}>
-              <label style={{ display: 'grid', gap: 7 }}>
-                <span style={{ fontWeight: 800, color: '#315985' }}>承辦</span>
-                <select value={single.handler_name} onChange={(e) => updateSingle('handler_name', e.target.value)}>
-                  <option value="">請選擇</option>
-                  {handlers.map((item) => <option key={item.id} value={item.name}>{item.display_name}</option>)}
-                </select>
-              </label>
-              <label style={{ display: 'grid', gap: 7 }}>
-                <span style={{ fontWeight: 800, color: '#315985' }}>仲介別</span>
-                <select value={single.broker_id} onChange={(e) => updateSingle('broker_id', e.target.value)}>
-                  <option value="">請選擇</option>
-                  {brokers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </label>
+          <div style={{ padding: '16px 16px 10px' }}>
+            <div style={{ border: '1px solid #dfe7d6', borderRadius: 18, overflow: 'hidden', background: '#fbfcf8' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))', background: '#f3f7ee', borderBottom: '1px solid #e4ebdb' }}>
+                <div style={{ padding: '10px 16px', fontWeight: 800, color: '#315985' }}>承辦</div>
+                <div style={{ padding: '10px 16px', fontWeight: 800, color: '#315985', borderLeft: '1px solid #e4ebdb' }}>仲介別</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))' }}>
+                <div style={{ padding: '12px 16px' }}>
+                  <select value={single.handler_name} onChange={(e) => updateSingle('handler_name', e.target.value)}>
+                    <option value="">請選擇</option>
+                    {handlers.map((item) => <option key={item.id} value={item.name}>{item.display_name}</option>)}
+                  </select>
+                </div>
+                <div style={{ padding: '12px 16px', borderLeft: '1px solid #eef2e8' }}>
+                  <select value={single.broker_id} onChange={(e) => updateSingle('broker_id', e.target.value)}>
+                    <option value="">請選擇</option>
+                    {brokers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
 

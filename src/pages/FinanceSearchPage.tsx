@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { CSSProperties, useMemo, useState } from 'react';
 import { deletePaymentBatch, updateFinanceDetailCase } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
@@ -83,6 +83,36 @@ function formatCorrectionRecord(item: PaymentBatchItem, caseRow: ArcCase, data: 
   records.push(...detailEditLogs);
 
   return records.join('；');
+}
+
+
+function financeBatchTheme(brokerName: string): { cardStyle: CSSProperties; batchNoStyle: CSSProperties; metricStyle: CSSProperties } {
+  if (brokerName === '灃康') {
+    return {
+      cardStyle: { background: '#f5fbf4', border: '1px solid #cfe4cb', boxShadow: 'inset 4px 0 0 #7db27a' },
+      batchNoStyle: { color: '#2f6b48' },
+      metricStyle: { color: '#2f6b48' }
+    };
+  }
+  if (brokerName === '乾坤') {
+    return {
+      cardStyle: { background: '#fffaf0', border: '1px solid #ead8a8', boxShadow: 'inset 4px 0 0 #c69b22' },
+      batchNoStyle: { color: '#8a6800' },
+      metricStyle: { color: '#8a6800' }
+    };
+  }
+  if (brokerName === '灃禾') {
+    return {
+      cardStyle: { background: '#fff5f8', border: '1px solid #efc7d4', boxShadow: 'inset 4px 0 0 #cc6e92' },
+      batchNoStyle: { color: '#a5486c' },
+      metricStyle: { color: '#a5486c' }
+    };
+  }
+  return {
+    cardStyle: { background: '#ffffff', border: '1px solid #d8e0ec' },
+    batchNoStyle: { color: '#2f477a' },
+    metricStyle: { color: '#2f477a' }
+  };
 }
 
 export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
@@ -331,11 +361,12 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
         <div className="finance-confirm-batch-list">
           {financeRows.length ? financeRows.map((row) => {
             const isExpanded = expandedBatchIds.has(row.batch.id);
+            const theme = financeBatchTheme(row.brokerName);
             return (
-              <article className={`finance-confirm-batch-card ${isExpanded ? 'is-selected' : ''}`} key={row.batch.id}>
+              <article className={`finance-confirm-batch-card ${isExpanded ? 'is-selected' : ''}`} key={row.batch.id} style={theme.cardStyle}>
                 <div className="finance-confirm-batch-topline">
                   <button type="button" className="secondary-button mini" onClick={() => toggleDetails(row.batch.id)}>{isExpanded ? '收合' : '展開'}</button>
-                  <strong className="finance-confirm-batch-no">{row.batch.batch_no}</strong>
+                  <strong className="finance-confirm-batch-no" style={theme.batchNoStyle}>{row.batch.batch_no}</strong>
                   <BatchStatusBadge status={row.batch.status} />
                   <div className="finance-confirm-top-meta"><span>對帳完成時間</span><b>{displayDateTime(row.batch.confirmed_at) || '—'}</b></div>
                   <div className="finance-confirm-top-meta"><span>對帳確認人</span><b>{row.confirmedByName || '—'}</b></div>
@@ -348,8 +379,8 @@ export function FinanceSearchPage({ data, profile, reload }: { data: ArcData; pr
                   <div><span>仲介</span><strong>{row.brokerName || '—'}</strong></div>
                 </div>
                 <div className="finance-confirm-metrics">
-                  <div><span>繳款件數</span><strong>{row.batch.case_count} 件</strong></div>
-                  <div><span>繳款總金額</span><strong>{formatMoney(row.batch.total_amount)} 元</strong></div>
+                  <div><span>繳款件數</span><strong style={theme.metricStyle}>{row.batch.case_count} 件</strong></div>
+                  <div><span>繳款總金額</span><strong style={theme.metricStyle}>{formatMoney(row.batch.total_amount)} 元</strong></div>
                 </div>
                 <div className="finance-confirm-note"><span>備註</span><strong>{row.batch.note?.trim() || '—'}</strong></div>
                 {isExpanded ? (
