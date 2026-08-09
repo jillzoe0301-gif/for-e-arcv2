@@ -68,6 +68,11 @@ const itemNameStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#3
 const amountStyle: CSSProperties = { fontSize: 20, fontWeight: 900, color: '#27548A', letterSpacing: '.2px', whiteSpace: 'nowrap' };
 const actionButtonStyle: CSSProperties = { minWidth: 72, justifyContent: 'center' };
 const inlineValueStyle: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 8, whiteSpace: 'nowrap' };
+const compactCaseStyle: CSSProperties = { ...cellSectionStyle, width: 180 };
+const compactHandlerStyle: CSSProperties = { ...cellSectionStyle, width: 160 };
+const compactReceiptStyle: CSSProperties = { ...cellSectionStyle, width: 150 };
+const compactItemStyle: CSSProperties = { ...cellSectionStyle, width: 150 };
+const compactDateStyle: CSSProperties = { ...cellSectionStyle, width: 155 };
 
 export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -271,7 +276,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '案件資料',
       className: 'case-main-col',
       render: (row: ArcCase) => (
-        <div style={cellSectionStyle}>
+        <div style={compactCaseStyle}>
           <div style={caseNoStyle} title={row.case_no}>{row.case_no}</div>
           <div style={nameLineStyle} title={`${row.employer_name} / ${row.worker_name}`}>{row.employer_name} / {row.worker_name}</div>
           <div style={subLineStyle} title={`團號：${row.group_no || '—'}`}>團號：{row.group_no || '—'}</div>
@@ -283,7 +288,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '送件承辦 / 繳費承辦',
       className: 'case-handler-col',
       render: (row: ArcCase) => (
-        <div style={cellSectionStyle}>
+        <div style={compactHandlerStyle}>
           {labeledValue('送件承辦', row.handler_name || '—')}
           {labeledValue('繳費承辦', paymentHandlerName(row) || '—')}
         </div>
@@ -294,7 +299,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '收件資料',
       className: 'case-receipt-col',
       render: (row: ArcCase) => (
-        <div style={cellSectionStyle}>
+        <div style={compactReceiptStyle}>
           {labeledValue('收件編號', row.receipt_no || '—')}
           {labeledValue('外字五碼', row.foreign_no_last5 || '—')}
           {labeledValue('經手人編號', row.handler_last4 || '—')}
@@ -306,7 +311,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '申請項目 / 金額',
       className: 'case-item-col',
       render: (row: ArcCase) => (
-        <div style={cellSectionStyle}>
+        <div style={compactItemStyle}>
           <div style={itemNameStyle} title={applicationItemName(row) || '—'}>{applicationItemName(row) || '—'}</div>
           <div style={amountStyle} title={formatMoney(row.amount)}>{formatMoney(row.amount)}</div>
           <div style={subLineStyle} title={`張數：${row.copy_count ?? 1}${(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}`}>張數：{row.copy_count ?? 1}{(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}</div>
@@ -318,7 +323,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '申請日 / 收費日期',
       className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div style={cellSectionStyle}>
+        <div style={compactDateStyle}>
           {labeledValue('申請日', formatDate(row.application_date) || '—')}
           {labeledValue('收費日期', formatDate(row.payment_date) || '—')}
         </div>
@@ -329,7 +334,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       title: '傳真日 / 領件日',
       className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div style={cellSectionStyle}>
+        <div style={compactDateStyle}>
           {labeledValue('傳真日', formatDate(row.fax_date) || '—')}
           {labeledValue('領件日', formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) || '—')}
         </div>
