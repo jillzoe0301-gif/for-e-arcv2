@@ -68,11 +68,16 @@ const itemNameStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#3
 const amountStyle: CSSProperties = { fontSize: 20, fontWeight: 900, color: '#27548A', letterSpacing: '.2px', whiteSpace: 'nowrap' };
 const actionButtonStyle: CSSProperties = { minWidth: 72, justifyContent: 'center' };
 const inlineValueStyle: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 8, whiteSpace: 'nowrap' };
-const compactCaseStyle: CSSProperties = { ...cellSectionStyle, width: 180 };
 const compactHandlerStyle: CSSProperties = { ...cellSectionStyle, width: 160 };
 const compactReceiptStyle: CSSProperties = { ...cellSectionStyle, width: 150 };
 const compactItemStyle: CSSProperties = { ...cellSectionStyle, width: 150 };
 const compactDateStyle: CSSProperties = { ...cellSectionStyle, width: 155 };
+
+function visualTextWidthUnits(value: string): number {
+  return Array.from(value || '').reduce((total, char) => {
+    return total + (/[^\u0000-\u00ff]/.test(char) ? 2 : 1);
+  }, 0);
+}
 
 export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -97,6 +102,20 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       paymentHandlerName(caseRow),
       caseRow.old_card_checked ? '舊卡' : ''
     ])), [data.applicationItems, data.cases, keyword, status]);
+
+  const caseInfoWidthCh = useMemo(() => {
+    const longest = rows.reduce((maxWidth, row) => {
+      const values = [
+        row.case_no ?? '',
+        `${row.employer_name ?? ''} / ${row.worker_name ?? ''}`,
+        `團號：${row.group_no || '—'}`
+      ];
+      return Math.max(maxWidth, ...values.map(visualTextWidthUnits));
+    }, visualTextWidthUnits('案件資料'));
+
+    // 依最長文字決定欄寬，另外預留約 2 個中文字元寬度。
+    return Math.min(44, Math.max(14, longest + 4));
+  }, [rows]);
 
   async function remove(row: ArcCase) {
     if (!canDeleteData(profile?.role)) {
@@ -274,9 +293,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'case_info',
       title: '案件資料',
-      className: 'case-main-col',
       render: (row: ArcCase) => (
-        <div style={compactCaseStyle}>
+        <div style={{ ...cellSectionStyle, width: `${caseInfoWidthCh}ch`, minWidth: `${caseInfoWidthCh}ch`, maxWidth: `${caseInfoWidthCh}ch` }}>
           <div style={caseNoStyle} title={row.case_no}>{row.case_no}</div>
           <div style={nameLineStyle} title={`${row.employer_name} / ${row.worker_name}`}>{row.employer_name} / {row.worker_name}</div>
           <div style={subLineStyle} title={`團號：${row.group_no || '—'}`}>團號：{row.group_no || '—'}</div>
