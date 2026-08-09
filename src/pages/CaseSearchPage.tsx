@@ -1,6 +1,5 @@
 import { CSSProperties, useMemo, useState } from 'react';
 import { deleteArcCase, updateCaseFromCaseSearch } from '../api/repository';
-import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchInput } from '../components/SearchInput';
@@ -57,27 +56,17 @@ function toEditForm(row: ArcCase): CaseEditForm {
   };
 }
 
-const blockStyle: CSSProperties = { display: 'grid', gap: 8, alignContent: 'start', minWidth: 'max-content' };
-const cellSectionStyle: CSSProperties = { display: 'grid', gap: 6, alignContent: 'start', minHeight: 68, minWidth: 'max-content' };
+const blockStyle: CSSProperties = { display: 'grid', gap: 4, alignContent: 'start' };
+const cellSectionStyle: CSSProperties = { display: 'grid', gap: 5, alignContent: 'start', minHeight: 62, minWidth: 0 };
 const tinyTextStyle: CSSProperties = { fontSize: 12, color: '#7b8494', fontWeight: 700, lineHeight: 1.35, whiteSpace: 'nowrap' };
-const strongTextStyle: CSSProperties = { fontSize: 14, color: '#1f2d3d', fontWeight: 800, lineHeight: 1.4, whiteSpace: 'nowrap' };
-const caseNoStyle: CSSProperties = { fontSize: 12, color: '#7b8494', fontWeight: 700, letterSpacing: '.2px', whiteSpace: 'nowrap' };
-const nameLineStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#1f2d3d', lineHeight: 1.45, whiteSpace: 'nowrap' };
-const subLineStyle: CSSProperties = { fontSize: 12, color: '#738098', lineHeight: 1.4, whiteSpace: 'nowrap' };
-const itemNameStyle: CSSProperties = { fontSize: 15, fontWeight: 900, color: '#315985', lineHeight: 1.4, whiteSpace: 'nowrap' };
-const amountStyle: CSSProperties = { fontSize: 20, fontWeight: 900, color: '#27548A', letterSpacing: '.2px', whiteSpace: 'nowrap' };
-const actionButtonStyle: CSSProperties = { minWidth: 72, justifyContent: 'center' };
-const inlineValueStyle: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 8, whiteSpace: 'nowrap' };
-const compactHandlerStyle: CSSProperties = { ...cellSectionStyle, width: 160 };
-const compactReceiptStyle: CSSProperties = { ...cellSectionStyle, width: 150 };
-const compactItemStyle: CSSProperties = { ...cellSectionStyle, width: 150 };
-const compactDateStyle: CSSProperties = { ...cellSectionStyle, width: 155 };
-
-function visualTextWidthUnits(value: string): number {
-  return Array.from(value || '').reduce((total, char) => {
-    return total + (/[^\u0000-\u00ff]/.test(char) ? 2 : 1);
-  }, 0);
-}
+const strongTextStyle: CSSProperties = { fontSize: 13, color: '#1f2d3d', fontWeight: 800, lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const caseNoStyle: CSSProperties = { fontSize: 11, color: '#7b8494', fontWeight: 700, letterSpacing: '.1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const nameLineStyle: CSSProperties = { fontSize: 13, fontWeight: 900, color: '#1f2d3d', lineHeight: 1.4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const subLineStyle: CSSProperties = { fontSize: 11, color: '#738098', lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const itemNameStyle: CSSProperties = { fontSize: 13, fontWeight: 900, color: '#315985', lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const amountStyle: CSSProperties = { fontSize: 18, fontWeight: 900, color: '#27548A', letterSpacing: '.1px', whiteSpace: 'nowrap' };
+const actionButtonStyle: CSSProperties = { width: '100%', minWidth: 0, justifyContent: 'center', paddingLeft: 6, paddingRight: 6 };
+const inlineValueStyle: CSSProperties = { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap', minWidth: 0 };
 
 export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -103,19 +92,6 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       caseRow.old_card_checked ? '舊卡' : ''
     ])), [data.applicationItems, data.cases, keyword, status]);
 
-  const caseInfoWidthCh = useMemo(() => {
-    const longest = rows.reduce((maxWidth, row) => {
-      const values = [
-        row.case_no ?? '',
-        `${row.employer_name ?? ''} / ${row.worker_name ?? ''}`,
-        `團號：${row.group_no || '—'}`
-      ];
-      return Math.max(maxWidth, ...values.map(visualTextWidthUnits));
-    }, visualTextWidthUnits('案件資料'));
-
-    // 依最長文字決定欄寬，另外預留約 2 個中文字元寬度。
-    return Math.min(44, Math.max(14, longest + 4));
-  }, [rows]);
 
   async function remove(row: ArcCase) {
     if (!canDeleteData(profile?.role)) {
@@ -281,20 +257,18 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'status',
       title: '狀態',
-      className: 'case-status-col',
       render: (row: ArcCase) => <div style={{ display: 'flex', alignItems: 'center', minHeight: 56, whiteSpace: 'nowrap' }}>{statusCell(row)}</div>
     },
     {
       key: 'broker',
       title: '仲介',
-      className: 'case-broker-col',
       render: (row: ArcCase) => <div style={{ display: 'flex', alignItems: 'center', minHeight: 56, fontWeight: 800, color: '#315985', whiteSpace: 'nowrap' }}>{brokerName(row)}</div>
     },
     {
       key: 'case_info',
       title: '案件資料',
       render: (row: ArcCase) => (
-        <div style={{ ...cellSectionStyle, width: `${caseInfoWidthCh}ch`, minWidth: `${caseInfoWidthCh}ch`, maxWidth: `${caseInfoWidthCh}ch` }}>
+        <div style={cellSectionStyle}>
           <div style={caseNoStyle} title={row.case_no}>{row.case_no}</div>
           <div style={nameLineStyle} title={`${row.employer_name} / ${row.worker_name}`}>{row.employer_name} / {row.worker_name}</div>
           <div style={subLineStyle} title={`團號：${row.group_no || '—'}`}>團號：{row.group_no || '—'}</div>
@@ -304,9 +278,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'handler_meta',
       title: '送件承辦 / 繳費承辦',
-      className: 'case-handler-col',
       render: (row: ArcCase) => (
-        <div style={compactHandlerStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('送件承辦', row.handler_name || '—')}
           {labeledValue('繳費承辦', paymentHandlerName(row) || '—')}
         </div>
@@ -315,9 +288,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'receipt_meta',
       title: '收件資料',
-      className: 'case-receipt-col',
       render: (row: ArcCase) => (
-        <div style={compactReceiptStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('收件編號', row.receipt_no || '—')}
           {labeledValue('外字五碼', row.foreign_no_last5 || '—')}
           {labeledValue('經手人編號', row.handler_last4 || '—')}
@@ -327,9 +299,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'item_amount',
       title: '申請項目 / 金額',
-      className: 'case-item-col',
       render: (row: ArcCase) => (
-        <div style={compactItemStyle}>
+        <div style={cellSectionStyle}>
           <div style={itemNameStyle} title={applicationItemName(row) || '—'}>{applicationItemName(row) || '—'}</div>
           <div style={amountStyle} title={formatMoney(row.amount)}>{formatMoney(row.amount)}</div>
           <div style={subLineStyle} title={`張數：${row.copy_count ?? 1}${(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}`}>張數：{row.copy_count ?? 1}{(row.old_card_checked ?? data.applicationItems.find((item) => item.id === row.application_item_id)?.requires_old_card) ? '｜舊卡：V' : ''}</div>
@@ -339,9 +310,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'apply_pay_dates',
       title: '申請日 / 收費日期',
-      className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div style={compactDateStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('申請日', formatDate(row.application_date) || '—')}
           {labeledValue('收費日期', formatDate(row.payment_date) || '—')}
         </div>
@@ -350,9 +320,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'fax_pickup_dates',
       title: '傳真日 / 領件日',
-      className: 'case-date-col',
       render: (row: ArcCase) => (
-        <div style={compactDateStyle}>
+        <div style={cellSectionStyle}>
           {labeledValue('傳真日', formatDate(row.fax_date) || '—')}
           {labeledValue('領件日', formatDate(row.pickup_date ?? (row.status === 'completed' ? row.expected_pickup_date : null)) || '—')}
         </div>
@@ -361,9 +330,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     {
       key: 'actions',
       title: '操作',
-      className: 'case-action-col',
       render: (row: ArcCase) => (
-        <div style={{ display: 'grid', gap: 8, alignContent: 'start', justifyItems: 'start', minWidth: 80 }}>
+        <div style={{ display: 'grid', gap: 8, alignContent: 'start', justifyItems: 'start', minWidth: 0, width: '100%' }}>
           {profile ? (
             <button type="button" className="secondary-button mini" style={actionButtonStyle} onClick={() => openEdit(row)}>
               修改
@@ -387,8 +355,36 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
           <SearchInput id="caseSearchInput" value={keyword} onCommit={setKeyword} placeholder="案件編號 / 雇主 / 工人 / 團號 / 申請項目 / 收件編號 / 外字五碼 / 送件承辦 / 繳費承辦" />
           <label className="inline-field"><span>狀態</span><select value={status} onChange={(e) => setStatus(e.target.value as CaseStatus | '')}><option value="">全部狀態</option>{Object.entries(caseStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         </div>
-        <div className="search-result-area" style={{ overflowX: 'auto' }}>
-          <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} emptyText="查無案件資料" />
+        <div className="search-result-area" style={{ width: '100%', overflowX: 'hidden' }}>
+          <div className="table-wrap" style={{ width: '100%', overflow: 'hidden' }}>
+            <table className="data-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: 13 }}>
+              <colgroup>
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '17%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '7%' }} />
+              </colgroup>
+              <thead>
+                <tr>{columns.map((column) => <th key={column.key} style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>{column.title}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.length ? rows.map((row) => (
+                  <tr key={row.id}>
+                    {columns.map((column) => (
+                      <td key={column.key} style={{ padding: '12px 8px', verticalAlign: 'top', overflow: 'hidden' }}>
+                        {column.render(row)}
+                      </td>
+                    ))}
+                  </tr>
+                )) : <tr><td colSpan={columns.length} style={{ padding: 28, textAlign: 'center', color: '#7b8494' }}>查無案件資料</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
       {editingCase && editForm ? (
