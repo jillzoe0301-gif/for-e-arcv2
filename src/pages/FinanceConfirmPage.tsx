@@ -6,7 +6,8 @@ import {
   updateFinanceDetailCase,
   deletePaymentBatch,
   removePaymentBatchItem,
-  updatePaymentBatchDate
+  updatePaymentBatchDate,
+  updatePaymentBatchAccount
 } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
@@ -94,6 +95,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
   const [correctionReason, setCorrectionReason] = useState('');
   const [detailDraft, setDetailDraft] = useState<DetailEditDraft>({ employer_name: '', worker_name: '', group_no: '', entry_date: '', application_date: '', application_item_id: '', amount: '', reason: '' });
   const [dateEditor, setDateEditor] = useState<{ batch: PaymentBatch; value: string } | null>(null);
+  const [accountEditor, setAccountEditor] = useState<{ batch: PaymentBatch; accountId: string } | null>(null);
   const [accountDrafts, setAccountDrafts] = useState<Record<string, AccountDraft>>({});
   const [isAddCaseOpen, setIsAddCaseOpen] = useState(false);
   const [addCaseKeyword, setAddCaseKeyword] = useState('');
@@ -148,6 +150,8 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
 
   const selectedBatchTotal = details.reduce((sum, entry) => sum + Number(entry.item.corrected_amount ?? entry.caseRow.amount ?? entry.item.original_amount ?? 0), 0);
   const mayChangeDate = selectedBatch ? canModifyFinanceBatchDate(profile?.role) && selectedBatch.status !== 'confirmed' : false;
+  const mayChangeAccount = selectedBatch ? canModifyFinanceBatchDate(profile?.role) && selectedBatch.status !== 'confirmed' : false;
+  const selectedBrokerAccounts = selectedBatch ? data.accounts.filter((account) => account.is_enabled && account.broker_id === selectedBatch.broker_id) : [];
   const mayAdjustBalance = canAdjustFinanceConfirmBalance(profile?.role);
   const mayCompleteBatch = canCompleteFinanceBatch(profile?.role);
   const canEditFinanceDetailFlag = canEditFinanceDetail(profile?.role);
@@ -252,6 +256,30 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
       await reload();
     } catch (err) {
       pushToast({ type: 'error', title: '修改日期失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    }
+  }
+
+  async function submitBatchAccount() {
+    if (!accountEditor) return;
+    if (!canModifyFinanceBatchDate(profile?.role)) {
+      pushToast({ type: 'warning', title: '您沒有修改扣款帳戶的權限。' });
+      return;
+    }
+    if (!accountEditor.accountId) {
+      pushToast({ type: 'warning', title: '請選擇新的扣款帳戶。' });
+      return;
+    }
+    try {
+      await updatePaymentBatchAccount({
+        batch: accountEditor.batch,
+        nextAccountId: accountEditor.accountId,
+        actor: profile
+      });
+      pushToast({ type: 'success', title: '扣款帳戶已更新', message: '原帳戶已沖回，並同步改扣新帳戶。' });
+      setAccountEditor(null);
+      await reload();
+    } catch (err) {
+      pushToast({ type: 'error', title: '修改扣款帳戶失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     }
   }
 
@@ -492,7 +520,7 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
             </div>
             <div><span>繳款人</span><strong>{selectedBatch.payer_name}</strong></div>
             <div><span>仲介</span><strong>{selectedBroker?.name ?? ''}</strong></div>
-            <div><span>扣款帳戶</span><strong>{selectedAccount?.account_name ?? '未設定'}</strong></div>
+            <div><span>扣款帳戶</span><strong>{selectedAccount?.account_name ?? '未設定'}</strong>{mayChangeAccount ? <button type="button" className="secondary-button mini inline-mini-button" onClick={() => setAccountEditor({ batch: selectedBatch, accountId: selectedBatch.account_id })}>修改帳戶</button> : null}</div>
             <div><span>該筆總金額</span><strong>{formatMoney(selectedBatchTotal)} 元</strong></div>
           </div>
 
@@ -538,6 +566,20 @@ export function FinanceConfirmPage({ data, profile, reload }: { data: ArcData; p
             <label><span>備註</span><textarea value={completeNote} onChange={(e) => setCompleteNote(e.target.value)} placeholder="可輸入對帳備註，非必填" /></label>
           </div>
           <div className="form-actions"><button className="primary-button" onClick={submitCompleteBatch}>確認對帳完成</button></div>
+        </Modal>
+      ) : null}
+
+      {accountEditor ? (
+        <Modal title="修改批次扣款帳戶" onClose={() => setAccountEditor(null)}>
+          <div className="form-grid one-col">
+            <p className="subtle-text">修改後會將此批次已扣金額從原帳戶沖回，再同步扣至新帳戶；批次內案件的扣款帳戶也會一起更新。</p>
+            <label><span>繳費批次編號</span><input value={accountEditor.batch.batch_no} disabled /></label>
+            <label><span>仲介</span><input value={data.brokers.find((item) => item.id === accountEditor.batch.broker_id)?.name ?? ''} disabled /></label>
+            <label><span>目前扣款帳戶</span><input value={data.accounts.find((item) => item.id === accountEditor.batch.account_id)?.account_name ?? '未設定'} disabled /></label>
+            <label><span>新的扣款帳戶</span><select value={accountEditor.accountId} onChange={(e) => setAccountEditor({ ...accountEditor, accountId: e.target.value })}><option value="">請選擇</option>{selectedBrokerAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}｜{account.bank_name}｜{account.account_last5 ?? account.account_no?.slice(-5) ?? ''}</option>)}</select></label>
+            <label><span>批次總金額</span><input value={`${formatMoney(accountEditor.batch.total_amount)} 元`} disabled /></label>
+          </div>
+          <div className="form-actions"><button className="primary-button" onClick={submitBatchAccount}>確認修改扣款帳戶</button></div>
         </Modal>
       ) : null}
 

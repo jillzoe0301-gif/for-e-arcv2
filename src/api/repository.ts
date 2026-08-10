@@ -567,6 +567,136 @@ export async function updatePaymentBatchDate(params: {
   });
 }
 
+
+export async function updatePaymentBatchAccount(params: {
+  batch: PaymentBatch;
+  nextAccountId: string;
+  actor: Profile | null;
+}) {
+  const { batch, nextAccountId, actor } = params;
+  if (!actor || !['admin', 'finance', 'staff'].includes(actor.role)) throw new Error('您沒有修改扣款帳戶的權限。');
+  if (batch.status === 'confirmed') throw new Error('已對帳完成的批次不可修改扣款帳戶。');
+  if (!nextAccountId) throw new Error('請選擇新的扣款帳戶。');
+  if (batch.account_id === nextAccountId) return;
+
+  const { data: oldAccount, error: oldAccountError } = await supabase
+    .from('bank_accounts')
+    .select('*')
+    .eq('id', batch.account_id)
+    .single();
+  if (oldAccountError) throw oldAccountError;
+
+  const { data: nextAccount, error: nextAccountError } = await supabase
+    .from('bank_accounts')
+    .select('*')
+    .eq('id', nextAccountId)
+    .eq('broker_id', batch.broker_id)
+    .eq('is_enabled', true)
+    .single();
+  if (nextAccountError) throw new Error('請選擇此仲介可使用的啟用扣款帳戶。');
+
+  const { data: batchTransactions, error: txnQueryError } = await supabase
+    .from('account_transactions')
+    .select('*')
+    .eq('ref_table', 'payment_batches')
+    .eq('ref_id', batch.id)
+    .eq('account_id', batch.account_id);
+  if (txnQueryError) throw txnQueryError;
+
+  const transferableRows = (batchTransactions ?? []).filter((row: AccountTransaction) =>
+    ['debit_payment_batch', 'debit_add_cases_to_batch', 'reverse_remove_case_from_batch'].includes(row.txn_type)
+  );
+  const transactionEffect = transferableRows.reduce((sum: number, row: AccountTransaction) => sum + Number(row.amount ?? 0), 0);
+  const effect = transferableRows.length ? transactionEffect : -Number(batch.total_amount ?? 0);
+
+  const oldBefore = Number(oldAccount.current_balance ?? 0);
+  const oldAfter = oldBefore - effect;
+  const nextBefore = Number(nextAccount.current_balance ?? 0);
+  const nextAfter = nextBefore + effect;
+
+  const { error: oldBalanceError } = await supabase
+    .from('bank_accounts')
+    .update({ current_balance: oldAfter, updated_by: actor.id })
+    .eq('id', oldAccount.id);
+  if (oldBalanceError) throw oldBalanceError;
+
+  const { error: nextBalanceError } = await supabase
+    .from('bank_accounts')
+    .update({ current_balance: nextAfter, updated_by: actor.id })
+    .eq('id', nextAccount.id);
+  if (nextBalanceError) {
+    await supabase.from('bank_accounts').update({ current_balance: oldBefore, updated_by: actor.id }).eq('id', oldAccount.id);
+    throw nextBalanceError;
+  }
+
+  const { error: batchError } = await supabase
+    .from('payment_batches')
+    .update({ account_id: nextAccount.id, updated_by: actor.id })
+    .eq('id', batch.id);
+  if (batchError) throw batchError;
+
+  const { error: caseError } = await supabase
+    .from('arc_cases')
+    .update({ payment_account_id: nextAccount.id, updated_by: actor.id })
+    .eq('payment_batch_id', batch.id);
+  if (caseError) throw caseError;
+
+  const nowReason = `財務對帳確認修改扣款帳戶｜批次 ${batch.batch_no}`;
+  if (effect !== 0) {
+    const { error: reverseTxnError } = await supabase.from('account_transactions').insert({
+      account_id: oldAccount.id,
+      txn_type: 'reverse_change_payment_account',
+      amount: -effect,
+      balance_before: oldBefore,
+      balance_after: oldAfter,
+      ref_table: 'payment_batches',
+      ref_id: batch.id,
+      reason: `${nowReason}｜原帳戶沖回`,
+      created_by: actor.id
+    });
+    if (reverseTxnError) throw reverseTxnError;
+
+    const { error: debitTxnError } = await supabase.from('account_transactions').insert({
+      account_id: nextAccount.id,
+      txn_type: 'debit_change_payment_account',
+      amount: effect,
+      balance_before: nextBefore,
+      balance_after: nextAfter,
+      ref_table: 'payment_batches',
+      ref_id: batch.id,
+      reason: `${nowReason}｜新帳戶扣款`,
+      created_by: actor.id
+    });
+    if (debitTxnError) throw debitTxnError;
+  }
+
+  await addAudit({
+    action_type: '財務批次扣款帳戶修改',
+    actor_id: actor.id,
+    actor_name: actor.display_name,
+    page_name: '財務對帳確認',
+    record_table: 'payment_batches',
+    record_id: batch.id,
+    old_data: {
+      繳費批次編號: batch.batch_no,
+      原扣款帳戶: oldAccount.account_name,
+      原帳戶ID: oldAccount.id,
+      原帳戶修改前餘額: oldBefore,
+      原帳戶修改後餘額: oldAfter,
+      本次轉移帳務金額: effect
+    },
+    new_data: {
+      繳費批次編號: batch.batch_no,
+      新扣款帳戶: nextAccount.account_name,
+      新帳戶ID: nextAccount.id,
+      新帳戶修改前餘額: nextBefore,
+      新帳戶修改後餘額: nextAfter,
+      批次案件同步更新: true
+    },
+    reason: '異動來源：財務對帳確認。原帳戶沖回並改由新帳戶承接此批次實際扣款。'
+  });
+}
+
 export async function adjustFinanceConfirmAccountBalance(params: {
   batch?: PaymentBatch | null;
   account: BankAccount;
