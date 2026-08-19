@@ -127,7 +127,7 @@ function makeLineMessage(params: {
   return [
     intro,
     '麻煩您協助刻章，謝謝您。',
-    `請幫忙${lineDate(params.requiredDate)}下午6點以前，方便時協助送來即可。`,
+    `請幫忙${lineDate(params.requiredDate)}下午4點以前，方便時協助送來即可。`,
     '收據請協助開立兩張：',
     `一張(一部)$${formatMoney(dept1Amount)}、一張(二部)$${formatMoney(dept2Amount)}`,
     '工人姓名如下：',
@@ -135,15 +135,16 @@ function makeLineMessage(params: {
   ].join('\n');
 }
 
-function receiptHtml(adminGroups: Array<{ admin: string; rows: StampOrder[] }>) {
-  const pages = adminGroups.map(({ admin, rows }) => {
-    const count = rows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
-    const amount = rows.reduce((sum, row) => sum + orderAmount(row), 0);
-    const body = rows.map((row, index) => `
+function receiptHtml(rows: StampOrder[]) {
+  const count = rows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+  const amount = rows.reduce((sum, row) => sum + orderAmount(row), 0);
+  const admins = Array.from(new Set(rows.map((row) => row.admin_name).filter(Boolean)));
+  const body = rows.map((row, index) => `
       <tr>
         <td>${index + 1}</td>
         <td>${row.stamp_date}</td>
-        <td>${row.department}</td>
+        <td>${escapeHtml(row.department)}</td>
+        <td>${escapeHtml(row.admin_name || '')}</td>
         <td>${escapeHtml(row.employer_department)}</td>
         <td>${escapeHtml(row.name_content)}</td>
         <td>${escapeHtml(row.stamp_type)}</td>
@@ -152,32 +153,29 @@ function receiptHtml(adminGroups: Array<{ admin: string; rows: StampOrder[] }>) 
         <td>$${formatMoney(orderAmount(row))}</td>
         <td></td>
       </tr>`).join('');
-    return `
-      <section class="page">
-        <h1>印章送刻簽收單</h1>
-        <div class="meta"><strong>行政：</strong>${escapeHtml(admin || '未指定')}　　<strong>印章數：</strong>${count}　　<strong>總金額：</strong>$${formatMoney(amount)}</div>
-        <table>
-          <thead><tr><th>#</th><th>送刻日期</th><th>部門</th><th>雇主</th><th>工人姓名 / 內容</th><th>印章種類</th><th>規格 / 備註</th><th>數量</th><th>金額</th><th>簽收</th></tr></thead>
-          <tbody>${body}</tbody>
-        </table>
-        <div class="sign">簽收人：____________________　　簽收日期：____________________</div>
-      </section>`;
-  }).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>印章送刻簽收單</title><style>
     @page { size:A4 landscape; margin:0.5cm; }
     body { font-family: Arial, "Microsoft JhengHei", sans-serif; color:#1f2d3d; margin:0; }
-    .page { page-break-after:always; }
-    .page:last-child { page-break-after:auto; }
+    .page { width:100%; }
     h1 { text-align:center; font-size:22px; margin:4px 0 10px; }
     .meta { margin-bottom:8px; font-size:14px; }
-    table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px; }
-    th,td { border:1px solid #6f7782; padding:6px 5px; vertical-align:middle; word-break:break-word; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:11px; }
+    th,td { border:1px solid #6f7782; padding:5px 4px; vertical-align:middle; word-break:break-word; }
     th { background:#eef3e9; }
-    th:nth-child(1),td:nth-child(1){width:3%} th:nth-child(2),td:nth-child(2){width:9%} th:nth-child(3),td:nth-child(3){width:6%}
-    th:nth-child(4),td:nth-child(4){width:15%} th:nth-child(5),td:nth-child(5){width:15%} th:nth-child(6),td:nth-child(6){width:11%}
-    th:nth-child(7),td:nth-child(7){width:15%} th:nth-child(8),td:nth-child(8){width:6%} th:nth-child(9),td:nth-child(9){width:8%} th:nth-child(10),td:nth-child(10){width:12%}
+    th:nth-child(1),td:nth-child(1){width:3%} th:nth-child(2),td:nth-child(2){width:8%} th:nth-child(3),td:nth-child(3){width:5%}
+    th:nth-child(4),td:nth-child(4){width:7%} th:nth-child(5),td:nth-child(5){width:13%} th:nth-child(6),td:nth-child(6){width:14%}
+    th:nth-child(7),td:nth-child(7){width:10%} th:nth-child(8),td:nth-child(8){width:14%} th:nth-child(9),td:nth-child(9){width:5%}
+    th:nth-child(10),td:nth-child(10){width:8%} th:nth-child(11),td:nth-child(11){width:13%}
     .sign { margin-top:14px; text-align:right; font-size:14px; }
-  </style></head><body>${pages}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  </style></head><body><section class="page">
+    <h1>印章送刻簽收單</h1>
+    <div class="meta"><strong>行政：</strong>${escapeHtml(admins.join('、') || '未指定')}　　<strong>印章數：</strong>${count}　　<strong>總金額：</strong>$${formatMoney(amount)}</div>
+    <table>
+      <thead><tr><th>#</th><th>送刻日期</th><th>部門</th><th>行政</th><th>雇主</th><th>工人姓名 / 內容</th><th>印章種類</th><th>規格 / 備註</th><th>數量</th><th>金額</th><th>簽收</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <div class="sign">簽收人：____________________　　簽收日期：____________________</div>
+  </section><script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
 }
 
 function escapeHtml(value: string) {
@@ -517,15 +515,13 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
       pushToast({ type: 'warning', title: '目前沒有可列印的印章資料。' });
       return;
     }
-    const adminNames = Array.from(new Set(rows.map((row) => row.admin_name || '未指定')));
-    const groups = adminNames.map((admin) => ({ admin, rows: rows.filter((row) => (row.admin_name || '未指定') === admin) }));
     const popup = window.open('', '_blank', 'width=1200,height=850');
     if (!popup) {
       pushToast({ type: 'warning', title: '瀏覽器阻擋列印視窗，請允許彈出視窗。' });
       return;
     }
     popup.document.open();
-    popup.document.write(receiptHtml(groups));
+    popup.document.write(receiptHtml(rows));
     popup.document.close();
   }
 
@@ -579,7 +575,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
 
   return (
     <div className="page-content">
-      <PageHeader title="印章送刻" description="印章送刻登記、依行政列印簽收單、部門印章數與金額、LINE 訊息及已送刻批次紀錄。" />
+      <PageHeader title="印章送刻" description="印章送刻登記、列印簽收單、部門印章數與金額、LINE 訊息及已送刻批次紀錄。" />
       <div className="tabs">
         <button className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>待送刻</button>
         <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>已送刻批次</button>
@@ -601,7 +597,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <button type="button" className="primary-button" onClick={addRow}>＋ 新增印章</button>
                 <button type="button" className="secondary-button" onClick={toggleAll}>{selectedIds.size === pendingOrders.length && pendingOrders.length ? '取消全選' : '全選待送刻'}</button>
-                <button type="button" className="secondary-button" onClick={() => printReceipt()}>依行政列印簽收單</button>
+                <button type="button" className="secondary-button" onClick={() => printReceipt()}>列印簽收單</button>
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <button type="button" className="secondary-button" onClick={() => openLineMessage()}>LINE 訊息</button>
