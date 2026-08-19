@@ -249,95 +249,147 @@ function receiptHtml(rows: StampOrder[]) {
   </section><script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
 }
 
-function claimItemName(order: StampOrder) {
-  const values = [order.employer_department?.trim(), order.name_content?.trim(), order.stamp_type?.trim()];
-  if (order.stamp_type !== '木頭章' && order.spec_note?.trim()) values.push(order.spec_note.trim());
-  return values.filter(Boolean).join('｜');
-}
-
-function splitRows<T>(rows: T[], size: number) {
-  const result: T[][] = [];
-  for (let index = 0; index < rows.length; index += size) result.push(rows.slice(index, index + size));
-  return result;
+function claimSpecialItemName(order: StampOrder) {
+  return [
+    order.employer_department?.trim(),
+    order.name_content?.trim(),
+    order.stamp_type?.trim(),
+    order.spec_note?.trim()
+  ].filter(Boolean).join('｜');
 }
 
 function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestDate: string }) {
   const departmentOrder = ['一部', '二部'];
-  const grouped = Array.from(new Set(params.rows.map((row) => row.department?.trim() || '未指定')))
+  const departments = Array.from(new Set(params.rows.map((row) => row.department?.trim() || '未指定')))
     .sort((a, b) => {
       const ai = departmentOrder.indexOf(a);
       const bi = departmentOrder.indexOf(b);
       if (ai >= 0 || bi >= 0) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
       return a.localeCompare(b, 'zh-Hant');
-    })
-    .flatMap((department) => {
-      const departmentRows = params.rows.filter((row) => (row.department?.trim() || '未指定') === department);
-      return splitRows(departmentRows, 6).map((rows, partIndex) => ({ department, rows, partIndex }));
     });
 
-  const claimSlips = grouped.map(({ department, rows, partIndex }) => {
+  const pages = departments.map((department) => {
+    const rows = params.rows.filter((row) => (row.department?.trim() || '未指定') === department);
+    const woodRows = rows.filter((row) => row.stamp_type === '木頭章');
+    const specialRows = rows.filter((row) => row.stamp_type !== '木頭章');
+    const woodQuantity = woodRows.reduce((sum, row) => sum + Math.max(1, Number(row.quantity ?? 1)), 0);
+    const woodAmount = woodRows.reduce((sum, row) => sum + orderAmount(row), 0);
+    const woodUnitPrice = woodRows.length ? Number(woodRows[0].unit_price ?? 40) : 40;
     const total = rows.reduce((sum, row) => sum + orderAmount(row), 0);
-    const blankRows = Array.from({ length: Math.max(0, 6 - rows.length) }, () => null);
-    const tableRows = [...rows, ...blankRows].map((row, index) => {
-      if (!row) return `<tr><td class="seq">${index + 1}</td><td></td><td></td><td></td><td></td></tr>`;
-      return `<tr>
-        <td class="seq">${index + 1}</td>
-        <td class="item">${escapeHtml(claimItemName(row))}</td>
-        <td class="num">${Number(row.quantity ?? 0)}</td>
+    const requestDate = formatDate(params.requestDate || rows[0]?.stamp_date || todayTaipei());
+
+    const claimRows: string[] = [];
+    if (woodRows.length) {
+      claimRows.push(`<tr>
+        <td class="seq">${claimRows.length + 1}</td>
+        <td class="item">工人開戶印章一批詳附件明細</td>
+        <td class="num">${woodQuantity}</td>
+        <td class="money">$${formatMoney(woodUnitPrice)}</td>
+        <td class="money">$${formatMoney(woodAmount)}</td>
+      </tr>`);
+    }
+    specialRows.forEach((row) => {
+      claimRows.push(`<tr>
+        <td class="seq">${claimRows.length + 1}</td>
+        <td class="item special-item">${escapeHtml(claimSpecialItemName(row))}</td>
+        <td class="num">${Math.max(1, Number(row.quantity ?? 1))}</td>
         <td class="money">$${formatMoney(Number(row.unit_price ?? 0))}</td>
         <td class="money">$${formatMoney(orderAmount(row))}</td>
-      </tr>`;
-    }).join('');
+      </tr>`);
+    });
+    const minimumClaimRows = 4;
+    for (let index = claimRows.length; index < minimumClaimRows; index += 1) {
+      claimRows.push(`<tr><td class="seq">${index + 1}</td><td></td><td></td><td></td><td></td></tr>`);
+    }
+
     const deptChecks = [
       ['營管處', false], ['營運處', false], ['營運一', department === '一部'], ['營運二', department === '二部'],
       ['美·時光', false], ['好·時光診所', false], ['管顧', false], ['人才', false]
     ].map(([label, checked]) => `${checked ? '☑' : '□'}${label}`).join('　');
-    const requestDate = formatDate(params.requestDate || rows[0]?.stamp_date || todayTaipei());
-    return `<section class="claim-slip">
-      <div class="company-line">□灃康人力資源 / □灃禾管理顧問 / □乾坤國際<br>□豐禾海外貿易 / □全方位培訓協會</div>
-      <h1>請 款 單</h1>
-      <div class="claim-meta">
-        <div class="department-block"><strong>請款<br>部門：</strong><div><div>□總經理室　□數位行銷　□財務稽核　□業務處　□營運處　□協會</div><div>${deptChecks}</div></div></div>
-        <div class="claim-date"><strong>日期：</strong>${escapeHtml(requestDate)}</div>
-      </div>
-      ${partIndex > 0 ? `<div class="continuation">${escapeHtml(department)}續頁 ${partIndex + 1}</div>` : ''}
-      <table class="claim-table">
-        <thead><tr><th class="seq">序號</th><th>品 名 / 規 格</th><th class="num">數量</th><th class="money">單價</th><th class="money">金額</th></tr></thead>
-        <tbody>${tableRows}</tbody>
-        <tfoot><tr><td colspan="2" class="payee">領款人簽章</td><td colspan="2" class="total-label">總計</td><td class="money total">$${formatMoney(total)}</td></tr></tfoot>
-      </table>
-      <div class="sign-row"><span>總經理室：</span><span>單位主管：</span><span>請款人：${escapeHtml(params.requester || '')}</span></div>
-      <div class="form-code">FW-QR-M043 A/1</div>
-    </section>`;
-  });
 
-  const pages = splitRows(claimSlips, 2).map((slips) => `<section class="a4-page">${slips.join('')}</section>`).join('');
+    const detailRows = rows.map((row, index) => `<tr>
+      <td class="detail-seq">${index + 1}</td>
+      <td>${escapeHtml(row.admin_name || '')}</td>
+      <td>${escapeHtml(row.employer_department || '')}</td>
+      <td>${escapeHtml(row.name_content || '')}</td>
+      <td>${escapeHtml(row.stamp_type || '')}</td>
+      <td>${row.stamp_type === '木頭章' ? '' : escapeHtml(row.spec_note || '')}</td>
+      <td class="detail-num">${Math.max(1, Number(row.quantity ?? 1))}</td>
+      <td class="detail-money">$${formatMoney(Number(row.unit_price ?? 0))}</td>
+      <td class="detail-money">$${formatMoney(orderAmount(row))}</td>
+    </tr>`).join('');
+
+    return `<section class="a4-page">
+      <section class="claim-half">
+        <div class="company-line">□灃康人力資源 / □灃禾管理顧問 / □乾坤國際<br>□豐禾海外貿易 / □全方位培訓協會</div>
+        <h1>請 款 單</h1>
+        <div class="claim-meta">
+          <div class="department-block"><strong>請款<br>部門：</strong><div><div>□總經理室　□數位行銷　□財務稽核　□業務處　□營運處　□協會</div><div>${deptChecks}</div></div></div>
+          <div class="claim-date"><strong>日期：</strong>${escapeHtml(requestDate)}</div>
+        </div>
+        <table class="claim-table">
+          <thead><tr><th class="seq">序號</th><th>品 名 / 規 格</th><th class="num">數量</th><th class="money">單價</th><th class="money">金額</th></tr></thead>
+          <tbody>${claimRows.join('')}</tbody>
+          <tfoot><tr><td colspan="2" class="payee">領款人簽章</td><td colspan="2" class="total-label">總計</td><td class="money total">$${formatMoney(total)}</td></tr></tfoot>
+        </table>
+        <div class="sign-row"><span>總經理室：</span><span>單位主管：</span><span>請款人：${escapeHtml(params.requester || '')}</span></div>
+        <div class="form-code">FW-QR-M043 A/1</div>
+      </section>
+
+      <section class="detail-half">
+        <div class="detail-title">附件明細｜${escapeHtml(department)}</div>
+        <div class="detail-meta"><span>送刻日期：${escapeHtml(formatDate(rows[0]?.stamp_date || params.requestDate || todayTaipei()))}</span><span>共 ${rows.length} 筆</span><span>總金額：$${formatMoney(total)}</span></div>
+        <table class="detail-table">
+          <thead><tr><th>#</th><th>行政</th><th>雇主</th><th>工人 / 內容</th><th>項目</th><th>規格</th><th>數量</th><th>單價</th><th>金額</th></tr></thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+      </section>
+    </section>`;
+  }).join('');
+
   return `<!doctype html><html><head><meta charset="utf-8"><title>印章請款單</title><style>
     @page { size:A4 portrait; margin:0.5cm; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Arial, "Microsoft JhengHei", sans-serif; color:#111; }
-    .a4-page { height:28.7cm; display:grid; grid-template-rows:repeat(2, minmax(0, 1fr)); gap:0.25cm; page-break-after:always; }
+    .a4-page { height:28.7cm; display:grid; grid-template-rows:50% 50%; page-break-after:always; overflow:hidden; }
     .a4-page:last-child { page-break-after:auto; }
-    .claim-slip { position:relative; min-height:0; overflow:hidden; padding:0.08cm 0.05cm; break-inside:avoid; page-break-inside:avoid; }
-    .company-line { text-align:center; font-weight:800; font-size:12px; line-height:1.25; margin:0 0 2px; }
+    .claim-half { position:relative; padding:0.03cm 0.04cm 0.12cm; overflow:hidden; border-bottom:1px dashed #999; }
+    .company-line { text-align:center; font-weight:800; font-size:11px; line-height:1.2; margin:0 0 1px; }
     h1 { text-align:center; font-size:18px; letter-spacing:5px; margin:1px 0 3px; }
-    .claim-meta { display:grid; grid-template-columns:1fr 150px; border:1px solid #222; border-bottom:0; min-height:43px; }
-    .department-block { display:flex; gap:7px; align-items:stretch; padding:4px 6px; font-size:9px; line-height:1.65; }
-    .department-block strong { font-size:10px; white-space:nowrap; }
-    .claim-date { border-left:1px solid #222; display:flex; align-items:center; justify-content:center; gap:5px; font-size:11px; white-space:nowrap; }
-    .continuation { position:absolute; right:8px; top:40px; font-size:8px; color:#666; }
-    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:10px; }
-    .claim-table th,.claim-table td { border:1px solid #222; padding:2px 4px; height:25px; vertical-align:middle; }
-    .claim-table th { font-size:11px; font-weight:800; text-align:center; }
+    .claim-meta { display:grid; grid-template-columns:1fr 145px; border:1px solid #222; border-bottom:0; min-height:40px; }
+    .department-block { display:flex; gap:6px; align-items:stretch; padding:3px 5px; font-size:8.5px; line-height:1.55; }
+    .department-block strong { font-size:9.5px; white-space:nowrap; }
+    .claim-date { border-left:1px solid #222; display:flex; align-items:center; justify-content:center; gap:5px; font-size:10.5px; white-space:nowrap; }
+    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9.5px; }
+    .claim-table th,.claim-table td { border:1px solid #222; padding:2px 4px; height:23px; vertical-align:middle; }
+    .claim-table th { font-size:10.5px; font-weight:800; text-align:center; }
     .claim-table .seq { width:7%; text-align:center; }
-    .claim-table .item { width:53%; white-space:normal; line-height:1.2; }
+    .claim-table .item { width:53%; white-space:normal; line-height:1.15; }
+    .claim-table .special-item { font-size:9px; }
     .claim-table .num { width:12%; text-align:center; }
     .claim-table .money { width:14%; text-align:right; white-space:nowrap; }
-    .claim-table .payee { text-align:center; font-size:11px; font-weight:700; }
-    .claim-table .total-label { text-align:center; font-size:11px; font-weight:700; }
+    .claim-table .payee,.claim-table .total-label { text-align:center; font-size:10.5px; font-weight:700; }
     .claim-table .total { font-weight:900; }
-    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:11px; padding:4px 2px 0; }
-    .form-code { text-align:right; font-size:9px; margin-top:2px; }
+    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:10.5px; padding:4px 2px 0; }
+    .form-code { text-align:right; font-size:8.5px; margin-top:1px; }
+
+    .detail-half { padding:0.16cm 0.04cm 0; overflow:hidden; }
+    .detail-title { text-align:center; font-size:15px; font-weight:900; letter-spacing:1px; margin-bottom:3px; }
+    .detail-meta { display:flex; justify-content:space-between; gap:10px; font-size:9.5px; font-weight:700; margin:0 1px 4px; }
+    .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:8.5px; }
+    .detail-table th,.detail-table td { border:1px solid #777; padding:2px 3px; height:19px; vertical-align:middle; line-height:1.15; }
+    .detail-table th { background:#f3f6ef; font-weight:800; text-align:center; }
+    .detail-table th:nth-child(1),.detail-table td:nth-child(1){width:4%}
+    .detail-table th:nth-child(2),.detail-table td:nth-child(2){width:9%}
+    .detail-table th:nth-child(3),.detail-table td:nth-child(3){width:16%}
+    .detail-table th:nth-child(4),.detail-table td:nth-child(4){width:18%}
+    .detail-table th:nth-child(5),.detail-table td:nth-child(5){width:13%}
+    .detail-table th:nth-child(6),.detail-table td:nth-child(6){width:18%}
+    .detail-table th:nth-child(7),.detail-table td:nth-child(7){width:7%}
+    .detail-table th:nth-child(8),.detail-table td:nth-child(8){width:7%}
+    .detail-table th:nth-child(9),.detail-table td:nth-child(9){width:8%}
+    .detail-seq,.detail-num { text-align:center; white-space:nowrap; }
+    .detail-money { text-align:right; white-space:nowrap; }
   </style></head><body>${pages}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
 }
 
