@@ -150,16 +150,9 @@ function makeLineMessage(params: {
   ].filter((group) => group.amount > 0);
 
   if (specialGroups.length) {
-    receiptLines.push('其他印章請依部門分開開立，每個部門統一一張收據：');
+    receiptLines.push(`其他印章請開立(${specialGroups.length}張收據)：`);
     specialGroups.forEach((group) => {
       receiptLines.push(`一張(${group.label}－其他印章)$${formatMoney(group.amount)}`);
-    });
-    receiptLines.push('印章種類 / 規格 / 金額');
-    specialGroups.forEach((group) => {
-      group.orders.forEach((order) => {
-        const spec = String(order.spec_note ?? '').trim() || '—';
-        receiptLines.push(`${group.label}｜${order.stamp_type} / ${spec} / $${formatMoney(orderAmount(order))}`);
-      });
     });
   }
 
@@ -731,7 +724,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                 </tbody>
               </table>
             </div>
-            <p className="subtle-text" style={{ marginTop: 10 }}>印章種類預設：木頭章 $40（不顯示規格備註）；連續章（姓名章）規格長 1.2 × 寬 0.8；藍色連續章 $140、不加框、長 3 × 寬 1。除木頭章外，其他印章統一合併開一張收據，LINE 會列出特殊印章種類／規格／金額。特殊印章與其他連續章單價仍可依實際報價調整。</p>
+            <p className="subtle-text" style={{ marginTop: 10 }}>印章種類預設：木頭章 $40（不顯示規格備註）；連續章（姓名章）規格長 1.2 × 寬 0.8；藍色連續章 $140、不加框、長 3 × 寬 1。除木頭章外，其他印章依部門各自統一開一張收據。特殊印章與其他連續章單價仍可依實際報價調整。</p>
           </section>
         </>
       ) : (
