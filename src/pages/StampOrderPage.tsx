@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createStampBatch,
   createStampOrder,
+  createStampOrders,
   deleteStampOrder,
   updateStampOrder
 } from '../api/repository';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../context/ToastContext';
 import type { ArcData, Profile, StampBatch, StampOrder } from '../types';
-import { formatDate, todayTaipei } from '../utils/date';
+import { formatDate, parseDateLoose, todayTaipei } from '../utils/date';
 import { formatMoney } from '../utils/number';
 
 const STAMP_TYPES = [
@@ -19,6 +20,16 @@ const STAMP_TYPES = [
 ] as const;
 
 const DEPARTMENTS = ['一部', '二部'] as const;
+
+const SENDER_OPTIONS = [
+  { name: '嘉陽', extension: '113' },
+  { name: '佩珊', extension: '117' },
+  { name: '詩涵', extension: '175' },
+  { name: '奕君', extension: '111' },
+  { name: '晏婷', extension: '119' },
+  { name: '林莞', extension: '114' },
+  { name: '若儀', extension: '184' }
+] as const;
 
 type Draft = {
   stamp_date: string;
@@ -159,9 +170,12 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
   const [tab, setTab] = useState<'pending' | 'history'>('pending');
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [senderName, setSenderName] = useState(profile?.display_name ?? '');
-  const [senderExtension, setSenderExtension] = useState('');
+  const initialSender = SENDER_OPTIONS.find((item) => profile?.display_name?.includes(item.name));
+  const [senderName, setSenderName] = useState(initialSender?.name ?? '');
+  const [senderExtension, setSenderExtension] = useState(initialSender?.extension ?? '');
   const [requiredDate, setRequiredDate] = useState(addDays(todayTaipei(), 1));
+  const [pasteText, setPasteText] = useState('');
+  const [importingPaste, setImportingPaste] = useState(false);
   const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
   const [savingId, setSavingId] = useState<string | null>(null);
   const [creatingBatch, setCreatingBatch] = useState(false);
@@ -200,6 +214,64 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
 
   function patchDraft(id: string, patch: Partial<Draft>) {
     setDrafts((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
+  }
+
+  function changeSender(value: string) {
+    const selected = SENDER_OPTIONS.find((item) => item.name === value);
+    setSenderName(selected?.name ?? '');
+    setSenderExtension(selected?.extension ?? '');
+  }
+
+  function parsePasteRows(text: string) {
+    const lines = text.replace(/\r/g, '').split('\n').map((line) => line.trimEnd()).filter((line) => line.trim());
+    if (!lines.length) return [];
+    const rows = lines.map((line) => line.split('\t').map((cell) => cell.trim()));
+    const first = rows[0].join('|');
+    const dataRows = /送刻日期|部門|行政|雇主|姓名/.test(first) ? rows.slice(1) : rows;
+    return dataRows.map((cells, index) => {
+      const [rawDate = '', department = '', adminName = '', employerDepartment = '', nameContent = '', rawType = '', rawSpec = '', rawQuantity = '', rawPrice = ''] = cells;
+      const date = rawDate ? (parseDateLoose(rawDate) ?? rawDate) : todayTaipei();
+      const stampType = STAMP_TYPES.includes(rawType as (typeof STAMP_TYPES)[number]) ? rawType : '木頭章';
+      const preset = stampPreset(stampType);
+      const quantity = rawQuantity ? Number(rawQuantity.replace(/,/g, '')) : 1;
+      const unitPrice = rawPrice ? Number(rawPrice.replace(/[$,]/g, '')) : (stampType === '木頭章' ? 40 : preset.price);
+      return {
+        lineNo: index + 1,
+        stamp_date: date,
+        department,
+        admin_name: adminName,
+        employer_department: employerDepartment,
+        name_content: nameContent,
+        stamp_type: stampType,
+        spec_note: rawSpec || preset.spec,
+        quantity,
+        unit_price: unitPrice
+      };
+    });
+  }
+
+  async function importPasteRows() {
+    const parsed = parsePasteRows(pasteText);
+    if (!parsed.length) {
+      pushToast({ type: 'warning', title: '請先貼上要新增的印章資料。' });
+      return;
+    }
+    const bad = parsed.find((row) => !row.stamp_date || !DEPARTMENTS.includes(row.department as (typeof DEPARTMENTS)[number]) || !row.admin_name || !row.employer_department || !row.name_content || !Number.isInteger(row.quantity) || row.quantity <= 0 || !Number.isFinite(row.unit_price) || row.unit_price < 0);
+    if (bad) {
+      pushToast({ type: 'warning', title: `第 ${bad.lineNo} 筆資料不完整`, message: '請確認送刻日期、部門、行政、雇主 / 部門、姓名 / 內容、數量與單價。' });
+      return;
+    }
+    setImportingPaste(true);
+    try {
+      await createStampOrders(parsed.map(({ lineNo: _lineNo, ...row }) => row), profile);
+      setPasteText('');
+      await reload();
+      pushToast({ type: 'success', title: `已批次新增 ${parsed.length} 筆印章資料` });
+    } catch (err) {
+      pushToast({ type: 'error', title: '批次新增失敗', message: err instanceof Error ? err.message : '請確認 Supabase 印章資料表已建立。' });
+    } finally {
+      setImportingPaste(false);
+    }
   }
 
   async function addRow() {
@@ -318,6 +390,10 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
       pushToast({ type: 'warning', title: '請先把選取資料的必填欄位補齊並儲存。' });
       return;
     }
+    if (!senderName || !senderExtension) {
+      pushToast({ type: 'warning', title: '請先選擇送刻者。' });
+      return;
+    }
     if (!window.confirm(`確定將 ${rows.length} 筆資料建立為已送刻批次嗎？`)) return;
     setCreatingBatch(true);
     try {
@@ -383,11 +459,19 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '160px 180px 180px 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '160px 220px 120px 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
               <label><span>希望送達日</span><input style={inputStyle} type="date" value={requiredDate} onChange={(e) => setRequiredDate(e.target.value)} /></label>
-              <label><span>送刻者</span><input style={inputStyle} value={senderName} onChange={(e) => setSenderName(e.target.value)} /></label>
-              <label><span>分機</span><input style={inputStyle} value={senderExtension} onChange={(e) => setSenderExtension(e.target.value)} placeholder="例如 113" /></label>
+              <label><span>送刻者</span><select style={inputStyle} value={senderName} onChange={(e) => changeSender(e.target.value)}><option value="">請選擇</option>{SENDER_OPTIONS.map((item) => <option key={item.name} value={item.name}>{item.name} #{item.extension}</option>)}</select></label>
+              <label><span>分機</span><input style={inputStyle} value={senderExtension} readOnly placeholder="自動帶入" /></label>
               <label><span>LINE 訊息預覽</span><textarea value={lineMessage} readOnly rows={5} style={{ width: '100%', resize: 'vertical' }} /></label>
+            </div>
+
+            <div style={{ border: '1px solid #dce5d4', borderRadius: 14, padding: 12, marginBottom: 14, background: '#fafcf8' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+                <div><strong style={{ color: '#315985' }}>整批複製貼上</strong><div className="subtle-text">可直接從 Excel / Google 試算表貼上。欄位順序：送刻日期｜部門｜行政｜雇主 / 部門｜姓名 / 內容｜印章種類｜規格 / 備註｜數量｜單價。後四欄可省略，預設木頭章／1 顆／$40。</div></div>
+                <button type="button" className="primary-button" disabled={importingPaste} onClick={importPasteRows}>{importingPaste ? '新增中...' : '批次新增'}</button>
+              </div>
+              <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={6} placeholder={'2026-08-19\t二部\t林莞\t宏電\t阿沙里\n2026-08-19\t一部\t嘉陽\t美德耐\t黃美奈秀'} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
             </div>
 
             <div style={{ overflowX: 'auto' }}>

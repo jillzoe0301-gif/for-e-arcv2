@@ -2055,6 +2055,21 @@ export async function upsertSettingTable<T extends { id?: string }>(table: strin
 }
 
 
+
+function normalizeStampDbError(error: any): Error {
+  const message = String(error?.message ?? error ?? '');
+  const code = String(error?.code ?? '');
+  const details = String(error?.details ?? '');
+  const combined = `${message} ${code} ${details}`;
+  if (/stamp_orders|stamp_batches|PGRST205|42P01|does not exist|schema cache/i.test(combined)) {
+    return new Error('印章送刻資料表尚未建立或尚未載入，請先執行 V13.51.8.15 的 Supabase 修復 SQL，再重新整理頁面。');
+  }
+  if (/permission denied|42501|row-level security|RLS/i.test(combined)) {
+    return new Error('印章送刻資料表權限尚未完成，請執行 V13.51.8.15 的 Supabase 修復 SQL。');
+  }
+  return new Error(message || '印章送刻資料寫入失敗。');
+}
+
 export async function createStampOrder(
   input: Pick<StampOrder, 'stamp_date' | 'department' | 'admin_name' | 'employer_department' | 'name_content' | 'stamp_type' | 'spec_note' | 'quantity' | 'unit_price'>,
   actor: Profile | null
@@ -2065,12 +2080,37 @@ export async function createStampOrder(
     created_by: actor?.id,
     updated_by: actor?.id
   }).select('*').single();
-  if (error) throw error;
+  if (error) throw normalizeStampDbError(error);
   await addAudit({
     action_type: '新增印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
     page_name: '印章送刻', record_table: 'stamp_orders', record_id: inserted.id, new_data: inserted
   });
   return inserted as StampOrder;
+}
+
+
+export async function createStampOrders(
+  inputs: Array<Pick<StampOrder, 'stamp_date' | 'department' | 'admin_name' | 'employer_department' | 'name_content' | 'stamp_type' | 'spec_note' | 'quantity' | 'unit_price'>>,
+  actor: Profile | null
+): Promise<StampOrder[]> {
+  if (!inputs.length) return [];
+  const rows = inputs.map((input) => ({
+    ...input,
+    status: 'pending',
+    created_by: actor?.id,
+    updated_by: actor?.id
+  }));
+  const { data: inserted, error } = await supabase.from('stamp_orders').insert(rows).select('*');
+  if (error) throw normalizeStampDbError(error);
+  await addAudit({
+    action_type: inputs.length > 1 ? '批次新增印章送刻' : '新增印章送刻',
+    actor_id: actor?.id,
+    actor_name: actor?.display_name,
+    page_name: '印章送刻',
+    record_table: 'stamp_orders',
+    new_data: inserted
+  });
+  return (inserted ?? []) as StampOrder[];
 }
 
 export async function updateStampOrder(
@@ -2079,10 +2119,10 @@ export async function updateStampOrder(
   actor: Profile | null
 ) {
   const { data: before, error: beforeError } = await supabase.from('stamp_orders').select('*').eq('id', id).single();
-  if (beforeError) throw beforeError;
+  if (beforeError) throw normalizeStampDbError(beforeError);
   if (before.status !== 'pending') throw new Error('已送刻資料不可修改。');
   const { data: updated, error } = await supabase.from('stamp_orders').update({ ...patch, updated_by: actor?.id }).eq('id', id).eq('status', 'pending').select('*').single();
-  if (error) throw error;
+  if (error) throw normalizeStampDbError(error);
   await addAudit({
     action_type: '修改印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
     page_name: '印章送刻', record_table: 'stamp_orders', record_id: id, old_data: before, new_data: updated
@@ -2092,10 +2132,10 @@ export async function updateStampOrder(
 
 export async function deleteStampOrder(id: string, actor: Profile | null) {
   const { data: before, error: beforeError } = await supabase.from('stamp_orders').select('*').eq('id', id).single();
-  if (beforeError) throw beforeError;
+  if (beforeError) throw normalizeStampDbError(beforeError);
   if (before.status !== 'pending') throw new Error('已送刻資料不可刪除。');
   const { error } = await supabase.from('stamp_orders').update({ deleted_at: new Date().toISOString(), updated_by: actor?.id }).eq('id', id).eq('status', 'pending');
-  if (error) throw error;
+  if (error) throw normalizeStampDbError(error);
   await addAudit({
     action_type: '刪除印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
     page_name: '印章送刻', record_table: 'stamp_orders', record_id: id, old_data: before
@@ -2114,7 +2154,7 @@ export async function createStampBatch(
     p_sender_extension: input.senderExtension,
     p_line_message: input.lineMessage
   });
-  if (error) throw error;
+  if (error) throw normalizeStampDbError(error);
   const normalized = Array.isArray(batch) ? batch[0] : batch;
   if (!normalized?.id) throw new Error('建立印章送刻批次失敗。');
   await addAudit({

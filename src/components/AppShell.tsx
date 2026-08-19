@@ -15,11 +15,11 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   { key: 'dashboard', label: '總覽', iconName: '總覽' },
   { key: 'registration', label: '居留案件登記', iconName: '居留案件登記' },
-  { key: 'stampOrder', label: '印章送刻', iconName: '印章送刻' },
   { key: 'payment', label: '居留證繳費', iconName: '居留證繳費' },
   { key: 'financeConfirm', label: '財務對帳確認', iconName: '財務對帳確認' },
   { key: 'financeSearch', label: '財務查詢', iconName: '財務查詢' },
   { key: 'faxPickup', label: '傳真/領件', iconName: '傳真/領件' },
+  { key: 'stampOrder', label: '印章送刻', iconName: '印章送刻' },
   { key: 'caseSearch', label: '案件查詢', iconName: '案件查詢' },
   { key: 'stats', label: '統計數據', iconName: '統計數據' },
   { key: 'serviceStations', label: '移民署／專勤隊', iconName: '移民署服務站' },
