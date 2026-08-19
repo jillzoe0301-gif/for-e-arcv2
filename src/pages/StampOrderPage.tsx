@@ -182,56 +182,70 @@ function makeLineMessage(params: {
 function receiptHtml(rows: StampOrder[]) {
   const count = rows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
   const amount = rows.reduce((sum, row) => sum + orderAmount(row), 0);
+  const stampDates = Array.from(new Set(rows.map((row) => row.stamp_date).filter(Boolean))).sort();
+  const stampDateText = stampDates.length === 1 ? stampDates[0] : stampDates.join('、');
   const adminNames = Array.from(new Set(rows.map((row) => row.admin_name?.trim() || '未指定').filter(Boolean)));
-  const groupedBody = adminNames.map((adminName) => {
+
+  const adminSections = adminNames.map((adminName) => {
     const adminRows = rows.filter((row) => (row.admin_name?.trim() || '未指定') === adminName);
-    const adminCount = adminRows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+    const departments = Array.from(new Set(adminRows.map((row) => row.department?.trim()).filter(Boolean)));
+    const departmentText = departments.length ? departments.join('、') : '未指定部門';
     const adminAmount = adminRows.reduce((sum, row) => sum + orderAmount(row), 0);
     const detailRows = adminRows.map((row, index) => `
       <tr>
         <td>${index + 1}</td>
-        <td>${row.stamp_date}</td>
-        <td>${escapeHtml(row.department)}</td>
         <td>${escapeHtml(row.employer_department)}</td>
         <td>${escapeHtml(row.name_content)}</td>
         <td>${escapeHtml(row.stamp_type)}</td>
         <td>${row.stamp_type === '木頭章' ? '' : escapeHtml(row.spec_note ?? '')}</td>
-        <td>${row.quantity}</td>
         <td>$${formatMoney(orderAmount(row))}</td>
       </tr>`).join('');
+
     return `
-      <tr class="admin-group-row">
-        <td colspan="9"><strong>行政：${escapeHtml(adminName)}</strong><span>｜印章數：${adminCount}｜金額：$${formatMoney(adminAmount)}</span></td>
-      </tr>
-      ${detailRows}
-      <tr class="admin-sign-row">
-        <td colspan="9">${escapeHtml(adminName)} 簽收：________________________　簽收日期：________________</td>
-      </tr>`;
+      <section class="admin-section">
+        <div class="admin-heading">
+          <strong>${escapeHtml(departmentText)}｜${escapeHtml(adminName)}</strong>
+          <span>共 ${adminRows.length} 筆｜金額 $${formatMoney(adminAmount)}</span>
+        </div>
+        <table>
+          <thead><tr><th>#</th><th>雇主 / 部門</th><th>姓名 / 內容</th><th>印章種類</th><th>規格 / 備註</th><th>金額</th></tr></thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+        <div class="admin-sign">${escapeHtml(adminName)} 簽收：______________________　簽收日期：________________</div>
+      </section>`;
   }).join('');
+
   return `<!doctype html><html><head><meta charset="utf-8"><title>印章送刻簽收單</title><style>
-    @page { size:A4 landscape; margin:0.5cm; }
+    @page { size:A4 portrait; margin:0.5cm; }
+    * { box-sizing:border-box; }
     body { font-family: Arial, "Microsoft JhengHei", sans-serif; color:#1f2d3d; margin:0; }
     .page { width:100%; }
-    h1 { text-align:center; font-size:22px; margin:4px 0 10px; }
-    .meta { margin-bottom:8px; font-size:14px; }
-    table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:11px; }
-    th,td { border:1px solid #6f7782; padding:5px 4px; vertical-align:middle; word-break:break-word; }
-    th { background:#eef3e9; }
-    th:nth-child(1),td:nth-child(1){width:4%} th:nth-child(2),td:nth-child(2){width:9%} th:nth-child(3),td:nth-child(3){width:6%}
-    th:nth-child(4),td:nth-child(4){width:16%} th:nth-child(5),td:nth-child(5){width:17%} th:nth-child(6),td:nth-child(6){width:11%}
-    th:nth-child(7),td:nth-child(7){width:17%} th:nth-child(8),td:nth-child(8){width:6%} th:nth-child(9),td:nth-child(9){width:10%}
-    .admin-group-row td { background:#e9f1df; font-size:13px; padding:7px 8px; }
-    .admin-group-row span { margin-left:12px; font-weight:600; color:#596579; }
-    .admin-sign-row td { background:#fafbf8; font-size:13px; font-weight:700; text-align:right; padding:10px 8px; }
-    .summary-sign { margin-top:12px; font-size:12px; color:#667085; }
+    h1 { text-align:center; font-size:20px; margin:2px 0 8px; }
+    .meta { display:flex; justify-content:space-between; gap:12px; margin-bottom:10px; font-size:12px; border-bottom:1px solid #aab2bd; padding-bottom:7px; }
+    .meta-left,.meta-right { white-space:nowrap; }
+    .admin-section { break-inside:avoid; page-break-inside:avoid; margin:0 0 12px; }
+    .admin-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; background:#e9f1df; border:1px solid #7d8793; border-bottom:0; padding:6px 8px; font-size:12px; }
+    .admin-heading strong { font-size:13px; }
+    .admin-heading span { color:#596579; font-weight:600; white-space:nowrap; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:10.5px; }
+    th,td { border:1px solid #7d8793; padding:4px 4px; vertical-align:middle; word-break:break-word; }
+    th { background:#f3f6ef; font-weight:800; }
+    th:nth-child(1),td:nth-child(1){width:5%}
+    th:nth-child(2),td:nth-child(2){width:21%}
+    th:nth-child(3),td:nth-child(3){width:24%}
+    th:nth-child(4),td:nth-child(4){width:15%}
+    th:nth-child(5),td:nth-child(5){width:25%}
+    th:nth-child(6),td:nth-child(6){width:10%; text-align:right}
+    .admin-sign { border:1px solid #7d8793; border-top:0; padding:8px 7px; font-size:12px; font-weight:700; text-align:right; background:#fafbf8; }
+    .summary { font-size:10.5px; color:#667085; margin-top:4px; }
   </style></head><body><section class="page">
     <h1>印章送刻簽收單</h1>
-    <div class="meta"><strong>行政：</strong>${escapeHtml(adminNames.join('、') || '未指定')}　　<strong>總印章數：</strong>${count}　　<strong>總金額：</strong>$${formatMoney(amount)}</div>
-    <table>
-      <thead><tr><th>#</th><th>送刻日期</th><th>部門</th><th>雇主</th><th>工人姓名 / 內容</th><th>印章種類</th><th>規格 / 備註</th><th>數量</th><th>金額</th></tr></thead>
-      <tbody>${groupedBody}</tbody>
-    </table>
-    <div class="summary-sign">本簽收單為同一批次單一文件；各行政於自己的區塊完成簽收即可。</div>
+    <div class="meta">
+      <div class="meta-left"><strong>送刻日期：</strong>${escapeHtml(stampDateText || '—')}</div>
+      <div class="meta-right"><strong>總筆數：</strong>${rows.length}　<strong>總金額：</strong>$${formatMoney(amount)}</div>
+    </div>
+    ${adminSections}
+    <div class="summary">同一份簽收單依行政分區簽收；列印換頁時不拆分同一行政區塊。</div>
   </section><script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
 }
 
