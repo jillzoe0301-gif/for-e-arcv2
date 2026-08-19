@@ -2060,14 +2060,21 @@ function normalizeStampDbError(error: any): Error {
   const message = String(error?.message ?? error ?? '');
   const code = String(error?.code ?? '');
   const details = String(error?.details ?? '');
-  const combined = `${message} ${code} ${details}`;
-  if (/stamp_orders|stamp_batches|PGRST205|42P01|does not exist|schema cache/i.test(combined)) {
-    return new Error('印章送刻資料表尚未建立或尚未載入，請先執行 V13.51.8.15 的 Supabase 修復 SQL，再重新整理頁面。');
+  const hint = String(error?.hint ?? '');
+  const combined = `${message} ${code} ${details} ${hint}`;
+  if (/PGRST205|42P01|relation .* does not exist|schema cache/i.test(combined)) {
+    return new Error('印章送刻資料表尚未載入，請重新整理頁面後再試。');
   }
   if (/permission denied|42501|row-level security|RLS/i.test(combined)) {
-    return new Error('印章送刻資料表權限尚未完成，請執行 V13.51.8.15 的 Supabase 修復 SQL。');
+    return new Error('目前帳號沒有印章送刻資料的寫入權限。');
   }
-  return new Error(message || '印章送刻資料寫入失敗。');
+  if (/check constraint|23514/i.test(combined)) {
+    return new Error(`印章資料欄位內容不符合格式：${message}`);
+  }
+  if (/invalid input syntax|22P02|22007/i.test(combined)) {
+    return new Error(`印章資料格式錯誤：${message}`);
+  }
+  return new Error(message || details || '印章送刻資料寫入失敗。');
 }
 
 export async function createStampOrder(

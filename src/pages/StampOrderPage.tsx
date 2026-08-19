@@ -319,17 +319,46 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
         return row as typeof base;
       }
 
-      // 無標題時：1 欄＝姓名/內容；2 欄＝雇主｜姓名/內容；3 欄以上依完整欄位順序貼入。
+      // 無標題時依欄數判斷，不把一般文字誤當成日期/部門。
+      // 1欄：姓名/內容
+      // 2欄：雇主｜姓名/內容
+      // 3欄：行政｜雇主｜姓名/內容
+      // 4欄：部門｜行政｜雇主｜姓名/內容
+      // 5欄以上：送刻日期｜部門｜行政｜雇主｜姓名/內容｜印章種類｜規格/備註｜數量｜單價
       if (cells.length === 1) {
         return { ...base, name_content: cells[0] ?? '' };
       }
       if (cells.length === 2) {
         return { ...base, employer_department: cells[0] ?? '', name_content: cells[1] ?? '' };
       }
+      if (cells.length === 3) {
+        const [adminName = '', employer = '', worker = ''] = cells;
+        const resolvedAdmin = adminName || loginAdminName;
+        return {
+          ...base,
+          admin_name: resolvedAdmin,
+          department: defaultDepartmentForAdmin(resolvedAdmin) || loginDepartment,
+          employer_department: employer,
+          name_content: worker
+        };
+      }
+      if (cells.length === 4) {
+        const [department = '', adminName = '', employer = '', worker = ''] = cells;
+        const resolvedAdmin = adminName || loginAdminName;
+        const validDepartment = department === '一部' || department === '二部' ? department : '';
+        return {
+          ...base,
+          department: validDepartment || defaultDepartmentForAdmin(resolvedAdmin) || loginDepartment,
+          admin_name: resolvedAdmin,
+          employer_department: employer,
+          name_content: worker
+        };
+      }
 
       const [rawDate = '', department = '', adminName = '', employer = '', worker = '', rawType = '', rawSpec = '', rawQuantity = '', rawPrice = ''] = cells;
       const resolvedAdmin = adminName || loginAdminName;
-      const resolvedDepartment = department || defaultDepartmentForAdmin(resolvedAdmin) || loginDepartment;
+      const validDepartment = department === '一部' || department === '二部' ? department : '';
+      const resolvedDepartment = validDepartment || defaultDepartmentForAdmin(resolvedAdmin) || loginDepartment;
       const date = rawDate ? (parseDateLoose(rawDate) ?? todayTaipei()) : todayTaipei();
       const stampType = rawType || '木頭章';
       const preset = stampPreset(stampType);
@@ -363,7 +392,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
       await reload();
       pushToast({ type: 'success', title: `已批次新增 ${parsed.length} 筆印章資料` });
     } catch (err) {
-      pushToast({ type: 'error', title: '批次新增失敗', message: err instanceof Error ? err.message : '請確認 Supabase 印章資料表已建立。' });
+      pushToast({ type: 'error', title: '批次新增失敗', message: err instanceof Error ? err.message : '批次新增失敗，請檢查貼上資料內容。' });
     } finally {
       setImportingPaste(false);
     }
