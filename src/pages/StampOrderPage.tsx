@@ -125,17 +125,19 @@ function makeLineMessage(params: {
     .filter((order) => order.department === '二部')
     .reduce((sum, order) => sum + orderAmount(order), 0);
 
-  const receiptLines: string[] = ['收據請協助開立：'];
+  const specialAmount = specialOrders.reduce((sum, order) => sum + orderAmount(order), 0);
+  const receiptCount = (woodDept1Amount > 0 ? 1 : 0) + (woodDept2Amount > 0 ? 1 : 0) + (specialAmount > 0 ? 1 : 0);
+  const receiptLines: string[] = [`收據請協助開立：(${receiptCount}張)`];
   const woodReceiptParts: string[] = [];
-  if (woodDept1Amount > 0) woodReceiptParts.push(`一張(木頭章－一部)$${formatMoney(woodDept1Amount)}`);
-  if (woodDept2Amount > 0) woodReceiptParts.push(`一張(木頭章－二部)$${formatMoney(woodDept2Amount)}`);
+  if (woodDept1Amount > 0) woodReceiptParts.push(`一張(一部)$${formatMoney(woodDept1Amount)}`);
+  if (woodDept2Amount > 0) woodReceiptParts.push(`一張(二部)$${formatMoney(woodDept2Amount)}`);
   if (woodReceiptParts.length) receiptLines.push(woodReceiptParts.join('、'));
-  if (specialOrders.length) {
-    receiptLines.push('其他印章請各自單獨開一張收據：');
+  if (specialAmount > 0) {
+    receiptLines.push(`其他印章請統一開一張收據：$${formatMoney(specialAmount)}`);
+    receiptLines.push('印章種類 / 規格 / 金額');
     specialOrders.forEach((order) => {
-      const spec = String(order.spec_note ?? '').trim();
-      const detail = [order.name_content.trim(), order.stamp_type, spec].filter(Boolean).join('｜');
-      receiptLines.push(`一張(${detail})$${formatMoney(orderAmount(order))}`);
+      const spec = String(order.spec_note ?? '').trim() || '—';
+      receiptLines.push(`${order.stamp_type} / ${spec} / $${formatMoney(orderAmount(order))}`);
     });
   }
 
@@ -707,7 +709,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                 </tbody>
               </table>
             </div>
-            <p className="subtle-text" style={{ marginTop: 10 }}>印章種類預設：木頭章 $40（不顯示規格備註）；連續章（姓名章）規格長 1.2 × 寬 0.8；藍色連續章 $140、不加框、長 3 × 寬 1。除木頭章外，其他印章請各自單獨開一張收據。特殊印章與其他連續章單價仍可依實際報價調整。</p>
+            <p className="subtle-text" style={{ marginTop: 10 }}>印章種類預設：木頭章 $40（不顯示規格備註）；連續章（姓名章）規格長 1.2 × 寬 0.8；藍色連續章 $140、不加框、長 3 × 寬 1。除木頭章外，其他印章統一合併開一張收據，LINE 會列出特殊印章種類／規格／金額。特殊印章與其他連續章單價仍可依實際報價調整。</p>
           </section>
         </>
       ) : (
