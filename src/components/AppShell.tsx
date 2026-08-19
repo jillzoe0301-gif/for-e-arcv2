@@ -15,6 +15,7 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   { key: 'dashboard', label: '總覽', iconName: '總覽' },
   { key: 'registration', label: '居留案件登記', iconName: '居留案件登記' },
+  { key: 'stampOrder', label: '印章送刻', iconName: '印章送刻' },
   { key: 'payment', label: '居留證繳費', iconName: '居留證繳費' },
   { key: 'financeConfirm', label: '財務對帳確認', iconName: '財務對帳確認' },
   { key: 'financeSearch', label: '財務查詢', iconName: '財務查詢' },

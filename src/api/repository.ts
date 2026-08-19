@@ -19,7 +19,9 @@ import type {
   PickupRecord,
   PickupRecordItem,
   Profile,
-  RegisterCaseInput
+  RegisterCaseInput,
+  StampBatch,
+  StampOrder
 } from '../types';
 import { nextAvailablePickupDay, todayTaipei } from '../utils/date';
 import { sortBrokers, sortPeople } from '../utils/sort';
@@ -32,6 +34,8 @@ export const emptyArcData: ArcData = {
   applicationItems: [],
   feeSettings: [],
   cases: [],
+  stampOrders: [],
+  stampBatches: [],
   batches: [],
   batchItems: [],
   accountTransactions: [],
@@ -71,6 +75,8 @@ export async function loadArcData(): Promise<ArcData> {
     applicationItems,
     feeSettings,
     cases,
+    stampOrders,
+    stampBatches,
     batches,
     batchItems,
     accountTransactions,
@@ -91,6 +97,8 @@ export async function loadArcData(): Promise<ArcData> {
     selectAll<ApplicationItem>('application_items', 'sort_order', true),
     selectAll<FeeSetting>('fee_settings', 'fee_name', true),
     selectAll<ArcCase>('arc_cases', 'created_at', false),
+    selectOptional<StampOrder>('stamp_orders', 'created_at', false),
+    selectOptional<StampBatch>('stamp_batches', 'created_at', false),
     selectAll<PaymentBatch>('payment_batches', 'created_at', false),
     selectAll<PaymentBatchItem>('payment_batch_items', 'created_at', false),
     selectAll<AccountTransaction>('account_transactions', 'created_at', false),
@@ -112,6 +120,8 @@ export async function loadArcData(): Promise<ArcData> {
     applicationItems,
     feeSettings,
     cases,
+    stampOrders,
+    stampBatches,
     batches,
     batchItems,
     accountTransactions,
@@ -2042,4 +2052,75 @@ export async function upsertSettingTable<T extends { id?: string }>(table: strin
     new_data: data
   });
   return data as T;
+}
+
+
+export async function createStampOrder(
+  input: Pick<StampOrder, 'stamp_date' | 'department' | 'admin_name' | 'employer_department' | 'name_content' | 'stamp_type' | 'spec_note' | 'quantity' | 'unit_price'>,
+  actor: Profile | null
+): Promise<StampOrder> {
+  const { data: inserted, error } = await supabase.from('stamp_orders').insert({
+    ...input,
+    status: 'pending',
+    created_by: actor?.id,
+    updated_by: actor?.id
+  }).select('*').single();
+  if (error) throw error;
+  await addAudit({
+    action_type: '新增印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
+    page_name: '印章送刻', record_table: 'stamp_orders', record_id: inserted.id, new_data: inserted
+  });
+  return inserted as StampOrder;
+}
+
+export async function updateStampOrder(
+  id: string,
+  patch: Partial<Pick<StampOrder, 'stamp_date' | 'department' | 'admin_name' | 'employer_department' | 'name_content' | 'stamp_type' | 'spec_note' | 'quantity' | 'unit_price'>>,
+  actor: Profile | null
+) {
+  const { data: before, error: beforeError } = await supabase.from('stamp_orders').select('*').eq('id', id).single();
+  if (beforeError) throw beforeError;
+  if (before.status !== 'pending') throw new Error('已送刻資料不可修改。');
+  const { data: updated, error } = await supabase.from('stamp_orders').update({ ...patch, updated_by: actor?.id }).eq('id', id).eq('status', 'pending').select('*').single();
+  if (error) throw error;
+  await addAudit({
+    action_type: '修改印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
+    page_name: '印章送刻', record_table: 'stamp_orders', record_id: id, old_data: before, new_data: updated
+  });
+  return updated as StampOrder;
+}
+
+export async function deleteStampOrder(id: string, actor: Profile | null) {
+  const { data: before, error: beforeError } = await supabase.from('stamp_orders').select('*').eq('id', id).single();
+  if (beforeError) throw beforeError;
+  if (before.status !== 'pending') throw new Error('已送刻資料不可刪除。');
+  const { error } = await supabase.from('stamp_orders').update({ deleted_at: new Date().toISOString(), updated_by: actor?.id }).eq('id', id).eq('status', 'pending');
+  if (error) throw error;
+  await addAudit({
+    action_type: '刪除印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
+    page_name: '印章送刻', record_table: 'stamp_orders', record_id: id, old_data: before
+  });
+}
+
+export async function createStampBatch(
+  input: { orderIds: string[]; sentDate: string; requiredDate: string; senderName: string; senderExtension: string; lineMessage: string },
+  actor: Profile | null
+): Promise<StampBatch> {
+  const { data: batch, error } = await supabase.rpc('create_stamp_batch', {
+    p_order_ids: input.orderIds,
+    p_sent_date: input.sentDate,
+    p_required_date: input.requiredDate,
+    p_sender_name: input.senderName,
+    p_sender_extension: input.senderExtension,
+    p_line_message: input.lineMessage
+  });
+  if (error) throw error;
+  const normalized = Array.isArray(batch) ? batch[0] : batch;
+  if (!normalized?.id) throw new Error('建立印章送刻批次失敗。');
+  await addAudit({
+    action_type: '建立印章送刻批次', actor_id: actor?.id, actor_name: actor?.display_name,
+    page_name: '印章送刻', record_table: 'stamp_batches', record_id: normalized.id,
+    new_data: { ...normalized, order_ids: input.orderIds }
+  });
+  return normalized as StampBatch;
 }

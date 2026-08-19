@@ -3,6 +3,7 @@ import type { PageKey, Profile, Role } from '../types';
 const allPages: PageKey[] = [
   'dashboard',
   'registration',
+  'stampOrder',
   'payment',
   'financeConfirm',
   'financeSearch',

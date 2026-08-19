@@ -6,6 +6,7 @@ import { useArcData } from './hooks/useArcData';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CaseRegistrationPage } from './pages/CaseRegistrationPage';
+import { StampOrderPage } from './pages/StampOrderPage';
 import { PaymentPage } from './pages/PaymentPage';
 import { FinanceConfirmPage } from './pages/FinanceConfirmPage';
 import { FinanceSearchPage } from './pages/FinanceSearchPage';
@@ -51,6 +52,7 @@ export function App() {
     switch (currentPage) {
       case 'dashboard': return <DashboardPage data={data} profile={profile} reload={reload} />;
       case 'registration': return <CaseRegistrationPage data={data} profile={profile} reload={reload} onGoFaxPickup={() => setCurrentPage('faxPickup')} />;
+      case 'stampOrder': return <StampOrderPage data={data} profile={profile} reload={reload} />;
       case 'payment': return <PaymentPage data={data} profile={profile} reload={reload} />;
       case 'financeConfirm': return <FinanceConfirmPage data={data} profile={profile} reload={reload} />;
       case 'financeSearch': return <FinanceSearchPage data={data} profile={profile} reload={reload} />;

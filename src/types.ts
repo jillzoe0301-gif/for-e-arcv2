@@ -3,6 +3,7 @@ export type Role = 'admin' | 'staff' | 'finance';
 export type PageKey =
   | 'dashboard'
   | 'registration'
+  | 'stampOrder'
   | 'payment'
   | 'financeConfirm'
   | 'financeSearch'
@@ -140,6 +141,48 @@ export interface ArcCase {
   pickup_record_id?: string | null;
   pickup_status?: PickupItemStatus | null;
   note?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+}
+
+export interface StampOrder {
+  id: string;
+  stamp_date: string;
+  department: string;
+  admin_name: string;
+  employer_department: string;
+  name_content: string;
+  stamp_type: string;
+  spec_note?: string | null;
+  quantity: number;
+  unit_price: number;
+  status: 'pending' | 'sent' | 'cancelled';
+  batch_id?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+}
+
+export interface StampBatch {
+  id: string;
+  batch_no: string;
+  sent_date: string;
+  required_date: string;
+  sender_name: string;
+  sender_extension?: string | null;
+  dept1_count: number;
+  dept1_amount: number;
+  dept2_count: number;
+  dept2_amount: number;
+  total_count: number;
+  total_amount: number;
+  line_message?: string | null;
+  status: 'sent' | 'cancelled';
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
@@ -314,6 +357,8 @@ export interface ArcData {
   applicationItems: ApplicationItem[];
   feeSettings: FeeSetting[];
   cases: ArcCase[];
+  stampOrders: StampOrder[];
+  stampBatches: StampBatch[];
   batches: PaymentBatch[];
   batchItems: PaymentBatchItem[];
   accountTransactions: AccountTransaction[];
