@@ -6,6 +6,7 @@ import {
   deleteStampOrder,
   updateStampOrder
 } from '../api/repository';
+import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../context/ToastContext';
 import type { ArcData, Profile, StampBatch, StampOrder } from '../types';
@@ -199,6 +200,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
   const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
   const [savingId, setSavingId] = useState<string | null>(null);
   const [creatingBatch, setCreatingBatch] = useState(false);
+  const [linePreview, setLinePreview] = useState<string | null>(null);
 
   const pendingOrders = useMemo(() => data.stampOrders
     .filter((order) => !order.deleted_at && order.status === 'pending')
@@ -216,9 +218,26 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
 
   const adminOptions = useMemo(() => data.people.filter((person) => person.is_enabled && person.show_as_admin), [data.people]);
 
+  const effectivePendingOrders = useMemo(() => pendingOrders.map((order) => {
+    const draft = drafts[order.id];
+    if (!draft) return order;
+    return {
+      ...order,
+      stamp_date: draft.stamp_date,
+      department: draft.department,
+      admin_name: draft.admin_name,
+      employer_department: draft.employer_department,
+      name_content: draft.name_content,
+      stamp_type: draft.stamp_type,
+      spec_note: draft.spec_note,
+      quantity: Number(draft.quantity || 0),
+      unit_price: Number(draft.unit_price || 0)
+    } as StampOrder;
+  }), [drafts, pendingOrders]);
+
   const pendingStats = useMemo(() => {
     const calc = (department: string) => {
-      const rows = pendingOrders.filter((order) => order.department === department);
+      const rows = effectivePendingOrders.filter((order) => order.department === department);
       return {
         count: rows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0),
         amount: rows.reduce((sum, row) => sum + orderAmount(row), 0)
@@ -227,9 +246,9 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     const one = calc('一部');
     const two = calc('二部');
     return { one, two, totalCount: one.count + two.count, totalAmount: one.amount + two.amount };
-  }, [pendingOrders]);
+  }, [effectivePendingOrders]);
 
-  const workingOrders = useMemo(() => selectedOrAll(selectedIds, pendingOrders), [pendingOrders, selectedIds]);
+  const workingOrders = useMemo(() => selectedOrAll(selectedIds, effectivePendingOrders), [effectivePendingOrders, selectedIds]);
   const lineMessage = useMemo(() => makeLineMessage({ senderName, senderExtension, requiredDate, orders: workingOrders }), [requiredDate, senderExtension, senderName, workingOrders]);
 
   function patchDraft(id: string, patch: Partial<Draft>) {
@@ -477,13 +496,20 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     setSelectedIds((current) => current.size === pendingOrders.length ? new Set() : new Set(pendingOrders.map((order) => order.id)));
   }
 
-  async function copyLine(message = lineMessage) {
+  async function copyLineText(message: string) {
     try {
       await navigator.clipboard.writeText(message);
       pushToast({ type: 'success', title: 'LINE 訊息已複製' });
+      return true;
     } catch {
-      pushToast({ type: 'error', title: '複製失敗', message: '請手動選取 LINE 訊息複製。' });
+      pushToast({ type: 'warning', title: '無法自動複製', message: 'LINE 訊息已開啟，請按視窗內的「再次複製」。' });
+      return false;
     }
+  }
+
+  async function openLineMessage(message = lineMessage) {
+    setLinePreview(message);
+    await copyLineText(message);
   }
 
   function printReceipt(rows = workingOrders) {
@@ -578,16 +604,15 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                 <button type="button" className="secondary-button" onClick={() => printReceipt()}>依行政列印簽收單</button>
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button type="button" className="secondary-button" onClick={() => copyLine()}>複製 LINE 訊息</button>
+                <button type="button" className="secondary-button" onClick={() => openLineMessage()}>LINE 訊息</button>
                 <button type="button" className="primary-button" disabled={creatingBatch} onClick={markSent}>{creatingBatch ? '建立中...' : '建立已送刻批次'}</button>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '160px 220px 120px 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '160px 220px 120px', gap: 12, marginBottom: 12, alignItems: 'end' }}>
               <label><span>希望送達日</span><input style={inputStyle} type="date" value={requiredDate} onChange={(e) => setRequiredDate(e.target.value)} /></label>
               <label><span>送刻者</span><select style={inputStyle} value={senderName} onChange={(e) => changeSender(e.target.value)}><option value="">請選擇</option>{SENDER_OPTIONS.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
               <label><span>分機</span><input style={inputStyle} value={senderExtension} readOnly placeholder="自動帶入" /></label>
-              <label><span>LINE 訊息預覽</span><textarea value={lineMessage} readOnly rows={5} style={{ width: '100%', resize: 'vertical' }} /></label>
             </div>
 
             <div className="subtle-text" style={{ marginBottom: 10 }}>自動帶入：林莞、奕君、佩珊＝二部；嘉陽、詩涵、晏婷＝一部；若儀的部門請手動選擇。日期預設為今天，所有欄位新增後皆可自行修改或刪除。</div>
@@ -662,7 +687,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                   <div><span style={{ display: 'block', color: '#7b8494', fontSize: 11 }}>送刻日期</span><b>{formatDate(batch.sent_date)}</b></div>
                   <div><span style={{ display: 'block', color: '#7b8494', fontSize: 11 }}>送刻者</span><b>{batch.sender_name}</b></div>
                   <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}><span>一部 {batch.dept1_count} 顆｜${formatMoney(batch.dept1_amount)}</span><span>二部 {batch.dept2_count} 顆｜${formatMoney(batch.dept2_amount)}</span><strong>總計 {batch.total_count} 顆｜${formatMoney(batch.total_amount)}</strong></div>
-                  <div style={{ display: 'flex', gap: 8 }}><button type="button" className="secondary-button mini" onClick={() => copyLine(batch.line_message ?? makeLineMessage({ senderName: batch.sender_name, senderExtension: batch.sender_extension ?? '', requiredDate: batch.required_date, orders: rows }))}>複製 LINE</button><button type="button" className="secondary-button mini" onClick={() => printReceipt(rows)}>列印簽收單</button></div>
+                  <div style={{ display: 'flex', gap: 8 }}><button type="button" className="secondary-button mini" onClick={() => openLineMessage(makeLineMessage({ senderName: batch.sender_name, senderExtension: batch.sender_extension ?? '', requiredDate: batch.required_date, orders: rows.map((row) => { const draft = drafts[row.id]; return draft ? { ...row, department: draft.department, name_content: draft.name_content, quantity: Number(draft.quantity || 0), unit_price: Number(draft.unit_price || 0) } as StampOrder : row; }) }))}>LINE 訊息</button><button type="button" className="secondary-button mini" onClick={() => printReceipt(rows)}>列印簽收單</button></div>
                 </div>
                 {expanded ? (
                   <div style={{ borderTop: '1px solid #e7ece3', padding: 14, overflowX: 'auto' }}>
@@ -686,7 +711,6 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                         </tr>;
                       })}</tbody>
                     </table>
-                    <div style={{ marginTop: 12, background: '#f7f9fc', borderRadius: 12, padding: 12, whiteSpace: 'pre-wrap', fontSize: 13 }}>{batch.line_message}</div>
                   </div>
                 ) : null}
               </article>
@@ -694,6 +718,20 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
           }) : <div style={{ padding: 28, textAlign: 'center', color: '#7b8494' }}>目前沒有已送刻批次紀錄。</div>}
         </section>
       )}
+      {linePreview !== null ? (
+        <Modal title="LINE 訊息" onClose={() => setLinePreview(null)}>
+          <textarea
+            value={linePreview}
+            readOnly
+            rows={12}
+            style={{ width: '100%', resize: 'vertical', minHeight: 260, lineHeight: 1.65, fontSize: 14 }}
+          />
+          <div className="form-actions" style={{ marginTop: 12 }}>
+            <button type="button" className="secondary-button" onClick={() => copyLineText(linePreview)}>再次複製</button>
+            <button type="button" className="primary-button" onClick={() => setLinePreview(null)}>完成</button>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
