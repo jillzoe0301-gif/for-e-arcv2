@@ -245,37 +245,96 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
   function parsePasteRows(text: string) {
     const lines = text.replace(/\r/g, '').split('\n').map((line) => line.trimEnd()).filter((line) => line.trim());
     if (!lines.length) return [];
+
     const rows = lines.map((line) => line.split('\t').map((cell) => cell.trim()));
-    const first = rows[0].join('|');
-    const dataRows = /送刻日期|部門|行政|雇主|工人|姓名/.test(first) ? rows.slice(1) : rows;
+    const normalizedHeader = (value: string) => value.replace(/\s+/g, '').replace(/[／/]/g, '/').toLowerCase();
+    const headerAliases: Record<string, keyof Draft> = {
+      '送刻日期': 'stamp_date',
+      '日期': 'stamp_date',
+      '部門': 'department',
+      '行政': 'admin_name',
+      '雇主': 'employer_department',
+      '雇主/部門': 'employer_department',
+      '雇主部門': 'employer_department',
+      '工人': 'name_content',
+      '姓名': 'name_content',
+      '內容': 'name_content',
+      '姓名/內容': 'name_content',
+      '工人姓名/內容': 'name_content',
+      '工人姓名': 'name_content',
+      '印章種類': 'stamp_type',
+      '種類': 'stamp_type',
+      '規格/備註': 'spec_note',
+      '規格': 'spec_note',
+      '備註': 'spec_note',
+      '數量': 'quantity',
+      '單價': 'unit_price',
+      '金額': 'unit_price'
+    };
+
+    const headerKeys = rows[0].map((cell) => headerAliases[normalizedHeader(cell)] ?? null);
+    const hasHeader = headerKeys.some(Boolean);
+    const dataRows = hasHeader ? rows.slice(1) : rows;
 
     return dataRows.map((cells, index) => {
-      // 日常快速貼上：雇主｜工人姓名／內容
-      if (cells.length <= 2) {
-        const [employer = '', worker = ''] = cells;
-        return {
-          lineNo: index + 1,
-          stamp_date: todayTaipei(),
-          department: loginDepartment,
-          admin_name: loginAdminName,
-          employer_department: employer,
-          name_content: worker,
-          stamp_type: '木頭章',
-          spec_note: '木頭章',
-          quantity: 1,
-          unit_price: 40
-        };
+      const base = {
+        lineNo: index + 1,
+        stamp_date: todayTaipei(),
+        department: loginDepartment,
+        admin_name: loginAdminName,
+        employer_department: '',
+        name_content: '',
+        stamp_type: '木頭章',
+        spec_note: '木頭章',
+        quantity: 1,
+        unit_price: 40
+      };
+
+      if (hasHeader) {
+        const row: Record<string, unknown> = { ...base };
+        cells.forEach((cell, cellIndex) => {
+          const key = headerKeys[cellIndex];
+          if (!key) return;
+          if (key === 'stamp_date') {
+            row[key] = cell ? (parseDateLoose(cell) ?? todayTaipei()) : base.stamp_date;
+          } else if (key === 'quantity') {
+            const parsed = Number(cell.replace(/,/g, ''));
+            row[key] = Number.isInteger(parsed) && parsed > 0 ? parsed : base.quantity;
+          } else if (key === 'unit_price') {
+            const parsed = Number(cell.replace(/[$,]/g, ''));
+            row[key] = Number.isFinite(parsed) && parsed >= 0 ? parsed : base.unit_price;
+          } else if (key === 'stamp_type') {
+            row[key] = cell || base.stamp_type;
+            if (cell) {
+              const preset = stampPreset(cell);
+              if (!cells.some((_, i) => headerKeys[i] === 'spec_note')) row.spec_note = preset.spec;
+              if (!cells.some((_, i) => headerKeys[i] === 'unit_price')) row.unit_price = cell === '木頭章' ? 40 : preset.price;
+            }
+          } else {
+            row[key] = cell;
+          }
+        });
+        const admin = String(row.admin_name ?? '');
+        if (!String(row.department ?? '').trim()) row.department = defaultDepartmentForAdmin(admin) || loginDepartment;
+        return row as typeof base;
       }
 
-      // 相容完整格式：送刻日期｜部門｜行政｜雇主｜工人／內容｜印章種類｜規格／備註｜數量｜單價
+      // 無標題時：1 欄＝姓名/內容；2 欄＝雇主｜姓名/內容；3 欄以上依完整欄位順序貼入。
+      if (cells.length === 1) {
+        return { ...base, name_content: cells[0] ?? '' };
+      }
+      if (cells.length === 2) {
+        return { ...base, employer_department: cells[0] ?? '', name_content: cells[1] ?? '' };
+      }
+
       const [rawDate = '', department = '', adminName = '', employer = '', worker = '', rawType = '', rawSpec = '', rawQuantity = '', rawPrice = ''] = cells;
       const resolvedAdmin = adminName || loginAdminName;
       const resolvedDepartment = department || defaultDepartmentForAdmin(resolvedAdmin) || loginDepartment;
-      const date = rawDate ? (parseDateLoose(rawDate) ?? rawDate) : todayTaipei();
-      const stampType = STAMP_TYPES.includes(rawType as (typeof STAMP_TYPES)[number]) ? rawType : '木頭章';
+      const date = rawDate ? (parseDateLoose(rawDate) ?? todayTaipei()) : todayTaipei();
+      const stampType = rawType || '木頭章';
       const preset = stampPreset(stampType);
-      const quantity = rawQuantity ? Number(rawQuantity.replace(/,/g, '')) : 1;
-      const unitPrice = rawPrice ? Number(rawPrice.replace(/[$,]/g, '')) : (stampType === '木頭章' ? 40 : preset.price);
+      const quantityNumber = rawQuantity ? Number(rawQuantity.replace(/,/g, '')) : 1;
+      const priceNumber = rawPrice ? Number(rawPrice.replace(/[$,]/g, '')) : (stampType === '木頭章' ? 40 : preset.price);
       return {
         lineNo: index + 1,
         stamp_date: date,
@@ -285,8 +344,8 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
         name_content: worker,
         stamp_type: stampType,
         spec_note: rawSpec || preset.spec,
-        quantity,
-        unit_price: unitPrice
+        quantity: Number.isInteger(quantityNumber) && quantityNumber > 0 ? quantityNumber : 1,
+        unit_price: Number.isFinite(priceNumber) && priceNumber >= 0 ? priceNumber : 40
       };
     });
   }
@@ -295,11 +354,6 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     const parsed = parsePasteRows(pasteText);
     if (!parsed.length) {
       pushToast({ type: 'warning', title: '請先貼上要新增的印章資料。' });
-      return;
-    }
-    const bad = parsed.find((row) => !row.stamp_date || ((!DEPARTMENTS.includes(row.department as (typeof DEPARTMENTS)[number])) && loginAdminName !== '若儀') || !row.admin_name || !row.employer_department || !row.name_content || !Number.isInteger(row.quantity) || row.quantity <= 0 || !Number.isFinite(row.unit_price) || row.unit_price < 0);
-    if (bad) {
-      pushToast({ type: 'warning', title: `第 ${bad.lineNo} 筆資料不完整`, message: loginAdminName === '若儀' ? '請確認送刻日期、行政、雇主、工人姓名 / 內容、數量與單價；部門可新增後再手動選擇。' : '請確認送刻日期、部門、行政、雇主、工人姓名 / 內容、數量與單價。' });
       return;
     }
     setImportingPaste(true);
@@ -511,10 +565,10 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
 
             <div style={{ border: '1px solid #dce5d4', borderRadius: 14, padding: 12, marginBottom: 14, background: '#fafcf8' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                <div><strong style={{ color: '#315985' }}>整批複製貼上</strong><div className="subtle-text">日常只要貼上兩欄：雇主｜工人姓名／內容。送刻日期自動帶今天，部門與行政依登入者帶入，預設木頭章／1 顆／$40；貼入後仍可逐筆修改。若儀請手動選擇部門。</div></div>
+                <div><strong style={{ color: '#315985' }}>整批複製貼上</strong><div className="subtle-text">貼上什麼就先帶入什麼，不再因缺少其他欄位擋住。只貼 1 欄＝姓名／內容；2 欄＝雇主｜姓名／內容；若貼上含標題的多欄資料，會依標題自動對應。沒貼到的欄位才使用系統預設值，新增後可逐筆手動修改。</div></div>
                 <button type="button" className="primary-button" disabled={importingPaste} onClick={importPasteRows}>{importingPaste ? '新增中...' : '批次新增'}</button>
               </div>
-              <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={6} placeholder={'宏電\t阿沙里\n美德耐\t黃美奈秀'} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
+              <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={6} placeholder={'雇主\t工人姓名 / 內容\n宏電\t阿沙里\n美德耐\t黃美奈秀'} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
             </div>
 
             <datalist id="stamp-admin-options">
