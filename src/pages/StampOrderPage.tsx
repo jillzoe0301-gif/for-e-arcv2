@@ -125,19 +125,41 @@ function makeLineMessage(params: {
     .filter((order) => order.department === '二部')
     .reduce((sum, order) => sum + orderAmount(order), 0);
 
-  const specialAmount = specialOrders.reduce((sum, order) => sum + orderAmount(order), 0);
-  const receiptCount = (woodDept1Amount > 0 ? 1 : 0) + (woodDept2Amount > 0 ? 1 : 0) + (specialAmount > 0 ? 1 : 0);
+  const specialDept1Orders = specialOrders.filter((order) => order.department === '一部');
+  const specialDept2Orders = specialOrders.filter((order) => order.department === '二部');
+  const specialDept1Amount = specialDept1Orders.reduce((sum, order) => sum + orderAmount(order), 0);
+  const specialDept2Amount = specialDept2Orders.reduce((sum, order) => sum + orderAmount(order), 0);
+  const unassignedSpecialOrders = specialOrders.filter((order) => order.department !== '一部' && order.department !== '二部');
+  const unassignedSpecialAmount = unassignedSpecialOrders.reduce((sum, order) => sum + orderAmount(order), 0);
+  const receiptCount =
+    (woodDept1Amount > 0 ? 1 : 0) +
+    (woodDept2Amount > 0 ? 1 : 0) +
+    (specialDept1Amount > 0 ? 1 : 0) +
+    (specialDept2Amount > 0 ? 1 : 0) +
+    (unassignedSpecialAmount > 0 ? 1 : 0);
   const receiptLines: string[] = [`收據請協助開立：(${receiptCount}張)`];
   const woodReceiptParts: string[] = [];
   if (woodDept1Amount > 0) woodReceiptParts.push(`一張(一部)$${formatMoney(woodDept1Amount)}`);
   if (woodDept2Amount > 0) woodReceiptParts.push(`一張(二部)$${formatMoney(woodDept2Amount)}`);
   if (woodReceiptParts.length) receiptLines.push(woodReceiptParts.join('、'));
-  if (specialAmount > 0) {
-    receiptLines.push(`其他印章請統一開一張收據：$${formatMoney(specialAmount)}`);
+
+  const specialGroups = [
+    { label: '一部', amount: specialDept1Amount, orders: specialDept1Orders },
+    { label: '二部', amount: specialDept2Amount, orders: specialDept2Orders },
+    { label: '未指定部門', amount: unassignedSpecialAmount, orders: unassignedSpecialOrders }
+  ].filter((group) => group.amount > 0);
+
+  if (specialGroups.length) {
+    receiptLines.push('其他印章請依部門分開開立，每個部門統一一張收據：');
+    specialGroups.forEach((group) => {
+      receiptLines.push(`一張(${group.label}－其他印章)$${formatMoney(group.amount)}`);
+    });
     receiptLines.push('印章種類 / 規格 / 金額');
-    specialOrders.forEach((order) => {
-      const spec = String(order.spec_note ?? '').trim() || '—';
-      receiptLines.push(`${order.stamp_type} / ${spec} / $${formatMoney(orderAmount(order))}`);
+    specialGroups.forEach((group) => {
+      group.orders.forEach((order) => {
+        const spec = String(order.spec_note ?? '').trim() || '—';
+        receiptLines.push(`${group.label}｜${order.stamp_type} / ${spec} / $${formatMoney(orderAmount(order))}`);
+      });
     });
   }
 
