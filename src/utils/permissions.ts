@@ -29,6 +29,8 @@ const pageRoles: Record<PageKey, Role[]> = allPages.reduce((result, page) => {
 
 export function canAccessPage(role: Role | undefined, page: PageKey): boolean {
   if (!role) return false;
+  // 統計數據僅限管理員：同時控制導覽顯示與頁面存取。
+  if (page === 'stats') return role === 'admin';
   return pageRoles[page].includes(role);
 }
 
