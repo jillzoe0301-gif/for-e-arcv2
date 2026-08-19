@@ -2120,11 +2120,34 @@ export async function updateStampOrder(
 ) {
   const { data: before, error: beforeError } = await supabase.from('stamp_orders').select('*').eq('id', id).single();
   if (beforeError) throw normalizeStampDbError(beforeError);
-  if (before.status !== 'pending') throw new Error('已送刻資料不可修改。');
-  const { data: updated, error } = await supabase.from('stamp_orders').update({ ...patch, updated_by: actor?.id }).eq('id', id).eq('status', 'pending').select('*').single();
+  if (before.deleted_at) throw new Error('此筆印章資料已刪除。');
+  const { data: updated, error } = await supabase.from('stamp_orders').update({ ...patch, updated_by: actor?.id }).eq('id', id).is('deleted_at', null).select('*').single();
   if (error) throw normalizeStampDbError(error);
+
+  if (before.batch_id) {
+    const { data: batchRows, error: batchRowsError } = await supabase.from('stamp_orders').select('department,quantity,unit_price').eq('batch_id', before.batch_id).is('deleted_at', null);
+    if (batchRowsError) throw normalizeStampDbError(batchRowsError);
+    const rows = batchRows ?? [];
+    const dept1Rows = rows.filter((row: any) => row.department === '一部');
+    const dept2Rows = rows.filter((row: any) => row.department === '二部');
+    const dept1Count = dept1Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0), 0);
+    const dept2Count = dept2Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0), 0);
+    const dept1Amount = dept1Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0) * Number(row.unit_price ?? 0), 0);
+    const dept2Amount = dept2Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0) * Number(row.unit_price ?? 0), 0);
+    const { error: batchError } = await supabase.from('stamp_batches').update({
+      dept1_count: dept1Count,
+      dept1_amount: dept1Amount,
+      dept2_count: dept2Count,
+      dept2_amount: dept2Amount,
+      total_count: dept1Count + dept2Count,
+      total_amount: dept1Amount + dept2Amount,
+      updated_by: actor?.id
+    }).eq('id', before.batch_id);
+    if (batchError) throw normalizeStampDbError(batchError);
+  }
+
   await addAudit({
-    action_type: '修改印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
+    action_type: before.status === 'sent' ? '修改已送刻印章' : '修改印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
     page_name: '印章送刻', record_table: 'stamp_orders', record_id: id, old_data: before, new_data: updated
   });
   return updated as StampOrder;
@@ -2133,11 +2156,34 @@ export async function updateStampOrder(
 export async function deleteStampOrder(id: string, actor: Profile | null) {
   const { data: before, error: beforeError } = await supabase.from('stamp_orders').select('*').eq('id', id).single();
   if (beforeError) throw normalizeStampDbError(beforeError);
-  if (before.status !== 'pending') throw new Error('已送刻資料不可刪除。');
-  const { error } = await supabase.from('stamp_orders').update({ deleted_at: new Date().toISOString(), updated_by: actor?.id }).eq('id', id).eq('status', 'pending');
+  if (before.deleted_at) throw new Error('此筆印章資料已刪除。');
+  const { error } = await supabase.from('stamp_orders').update({ deleted_at: new Date().toISOString(), updated_by: actor?.id }).eq('id', id).is('deleted_at', null);
   if (error) throw normalizeStampDbError(error);
+
+  if (before.batch_id) {
+    const { data: batchRows, error: batchRowsError } = await supabase.from('stamp_orders').select('department,quantity,unit_price').eq('batch_id', before.batch_id).is('deleted_at', null);
+    if (batchRowsError) throw normalizeStampDbError(batchRowsError);
+    const rows = batchRows ?? [];
+    const dept1Rows = rows.filter((row: any) => row.department === '一部');
+    const dept2Rows = rows.filter((row: any) => row.department === '二部');
+    const dept1Count = dept1Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0), 0);
+    const dept2Count = dept2Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0), 0);
+    const dept1Amount = dept1Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0) * Number(row.unit_price ?? 0), 0);
+    const dept2Amount = dept2Rows.reduce((sum: number, row: any) => sum + Number(row.quantity ?? 0) * Number(row.unit_price ?? 0), 0);
+    const { error: batchError } = await supabase.from('stamp_batches').update({
+      dept1_count: dept1Count,
+      dept1_amount: dept1Amount,
+      dept2_count: dept2Count,
+      dept2_amount: dept2Amount,
+      total_count: dept1Count + dept2Count,
+      total_amount: dept1Amount + dept2Amount,
+      updated_by: actor?.id
+    }).eq('id', before.batch_id);
+    if (batchError) throw normalizeStampDbError(batchError);
+  }
+
   await addAudit({
-    action_type: '刪除印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
+    action_type: before.status === 'sent' ? '刪除已送刻印章' : '刪除印章送刻', actor_id: actor?.id, actor_name: actor?.display_name,
     page_name: '印章送刻', record_table: 'stamp_orders', record_id: id, old_data: before
   });
 }

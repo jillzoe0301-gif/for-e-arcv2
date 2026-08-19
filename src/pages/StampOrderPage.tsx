@@ -31,6 +31,24 @@ const SENDER_OPTIONS = [
   { name: '若儀', extension: '184' }
 ] as const;
 
+const ADMIN_DEPARTMENT_MAP: Record<string, string> = {
+  '林莞': '二部',
+  '奕君': '二部',
+  '佩珊': '二部',
+  '嘉陽': '一部',
+  '詩涵': '一部',
+  '晏婷': '一部'
+};
+
+function profileAdminName(displayName?: string | null) {
+  const text = String(displayName ?? '');
+  return [...Object.keys(ADMIN_DEPARTMENT_MAP), '若儀'].find((name) => text.includes(name)) ?? '';
+}
+
+function defaultDepartmentForAdmin(adminName: string) {
+  return ADMIN_DEPARTMENT_MAP[adminName] ?? '';
+}
+
 type Draft = {
   stamp_date: string;
   department: string;
@@ -138,7 +156,7 @@ function receiptHtml(adminGroups: Array<{ admin: string; rows: StampOrder[] }>) 
         <h1>印章送刻簽收單</h1>
         <div class="meta"><strong>行政：</strong>${escapeHtml(admin || '未指定')}　　<strong>印章數：</strong>${count}　　<strong>總金額：</strong>$${formatMoney(amount)}</div>
         <table>
-          <thead><tr><th>#</th><th>送刻日期</th><th>部門</th><th>雇主 / 部門</th><th>姓名 / 內容</th><th>印章種類</th><th>規格 / 備註</th><th>數量</th><th>金額</th><th>簽收</th></tr></thead>
+          <thead><tr><th>#</th><th>送刻日期</th><th>部門</th><th>雇主</th><th>工人姓名 / 內容</th><th>印章種類</th><th>規格 / 備註</th><th>數量</th><th>金額</th><th>簽收</th></tr></thead>
           <tbody>${body}</tbody>
         </table>
         <div class="sign">簽收人：____________________　　簽收日期：____________________</div>
@@ -170,6 +188,8 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
   const [tab, setTab] = useState<'pending' | 'history'>('pending');
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const loginAdminName = profileAdminName(profile?.display_name);
+  const loginDepartment = defaultDepartmentForAdmin(loginAdminName);
   const initialSender = SENDER_OPTIONS.find((item) => profile?.display_name?.includes(item.name));
   const [senderName, setSenderName] = useState(initialSender?.name ?? '');
   const [senderExtension, setSenderExtension] = useState(initialSender?.extension ?? '');
@@ -190,9 +210,9 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
 
   useEffect(() => {
     const next: Record<string, Draft> = {};
-    pendingOrders.forEach((order) => { next[order.id] = orderToDraft(order); });
+    data.stampOrders.filter((order) => !order.deleted_at).forEach((order) => { next[order.id] = orderToDraft(order); });
     setDrafts(next);
-  }, [pendingOrders]);
+  }, [data.stampOrders]);
 
   const adminOptions = useMemo(() => data.people.filter((person) => person.is_enabled && person.show_as_admin), [data.people]);
 
@@ -227,9 +247,30 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     if (!lines.length) return [];
     const rows = lines.map((line) => line.split('\t').map((cell) => cell.trim()));
     const first = rows[0].join('|');
-    const dataRows = /送刻日期|部門|行政|雇主|姓名/.test(first) ? rows.slice(1) : rows;
+    const dataRows = /送刻日期|部門|行政|雇主|工人|姓名/.test(first) ? rows.slice(1) : rows;
+
     return dataRows.map((cells, index) => {
-      const [rawDate = '', department = '', adminName = '', employerDepartment = '', nameContent = '', rawType = '', rawSpec = '', rawQuantity = '', rawPrice = ''] = cells;
+      // 日常快速貼上：雇主｜工人姓名／內容
+      if (cells.length <= 2) {
+        const [employer = '', worker = ''] = cells;
+        return {
+          lineNo: index + 1,
+          stamp_date: todayTaipei(),
+          department: loginDepartment,
+          admin_name: loginAdminName,
+          employer_department: employer,
+          name_content: worker,
+          stamp_type: '木頭章',
+          spec_note: '木頭章',
+          quantity: 1,
+          unit_price: 40
+        };
+      }
+
+      // 相容完整格式：送刻日期｜部門｜行政｜雇主｜工人／內容｜印章種類｜規格／備註｜數量｜單價
+      const [rawDate = '', department = '', adminName = '', employer = '', worker = '', rawType = '', rawSpec = '', rawQuantity = '', rawPrice = ''] = cells;
+      const resolvedAdmin = adminName || loginAdminName;
+      const resolvedDepartment = department || defaultDepartmentForAdmin(resolvedAdmin) || loginDepartment;
       const date = rawDate ? (parseDateLoose(rawDate) ?? rawDate) : todayTaipei();
       const stampType = STAMP_TYPES.includes(rawType as (typeof STAMP_TYPES)[number]) ? rawType : '木頭章';
       const preset = stampPreset(stampType);
@@ -238,10 +279,10 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
       return {
         lineNo: index + 1,
         stamp_date: date,
-        department,
-        admin_name: adminName,
-        employer_department: employerDepartment,
-        name_content: nameContent,
+        department: resolvedDepartment,
+        admin_name: resolvedAdmin,
+        employer_department: employer,
+        name_content: worker,
         stamp_type: stampType,
         spec_note: rawSpec || preset.spec,
         quantity,
@@ -256,9 +297,9 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
       pushToast({ type: 'warning', title: '請先貼上要新增的印章資料。' });
       return;
     }
-    const bad = parsed.find((row) => !row.stamp_date || !DEPARTMENTS.includes(row.department as (typeof DEPARTMENTS)[number]) || !row.admin_name || !row.employer_department || !row.name_content || !Number.isInteger(row.quantity) || row.quantity <= 0 || !Number.isFinite(row.unit_price) || row.unit_price < 0);
+    const bad = parsed.find((row) => !row.stamp_date || ((!DEPARTMENTS.includes(row.department as (typeof DEPARTMENTS)[number])) && loginAdminName !== '若儀') || !row.admin_name || !row.employer_department || !row.name_content || !Number.isInteger(row.quantity) || row.quantity <= 0 || !Number.isFinite(row.unit_price) || row.unit_price < 0);
     if (bad) {
-      pushToast({ type: 'warning', title: `第 ${bad.lineNo} 筆資料不完整`, message: '請確認送刻日期、部門、行政、雇主 / 部門、姓名 / 內容、數量與單價。' });
+      pushToast({ type: 'warning', title: `第 ${bad.lineNo} 筆資料不完整`, message: loginAdminName === '若儀' ? '請確認送刻日期、行政、雇主、工人姓名 / 內容、數量與單價；部門可新增後再手動選擇。' : '請確認送刻日期、部門、行政、雇主、工人姓名 / 內容、數量與單價。' });
       return;
     }
     setImportingPaste(true);
@@ -278,8 +319,8 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     try {
       await createStampOrder({
         stamp_date: todayTaipei(),
-        department: '',
-        admin_name: '',
+        department: loginDepartment,
+        admin_name: loginAdminName,
         employer_department: '',
         name_content: '',
         stamp_type: '木頭章',
@@ -300,7 +341,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     const quantity = Number(draft.quantity);
     const unitPrice = Number(draft.unit_price);
     if (!draft.stamp_date || !draft.department || !draft.admin_name || !draft.employer_department.trim() || !draft.name_content.trim()) {
-      pushToast({ type: 'warning', title: '送刻日期、部門、行政、雇主 / 部門、姓名 / 內容為必填。' });
+      pushToast({ type: 'warning', title: '送刻日期、部門、行政、雇主、工人姓名 / 內容為必填。' });
       return;
     }
     if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
@@ -461,19 +502,25 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
 
             <div style={{ display: 'grid', gridTemplateColumns: '160px 220px 120px 1fr', gap: 12, marginBottom: 12, alignItems: 'end' }}>
               <label><span>希望送達日</span><input style={inputStyle} type="date" value={requiredDate} onChange={(e) => setRequiredDate(e.target.value)} /></label>
-              <label><span>送刻者</span><select style={inputStyle} value={senderName} onChange={(e) => changeSender(e.target.value)}><option value="">請選擇</option>{SENDER_OPTIONS.map((item) => <option key={item.name} value={item.name}>{item.name} #{item.extension}</option>)}</select></label>
+              <label><span>送刻者</span><select style={inputStyle} value={senderName} onChange={(e) => changeSender(e.target.value)}><option value="">請選擇</option>{SENDER_OPTIONS.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
               <label><span>分機</span><input style={inputStyle} value={senderExtension} readOnly placeholder="自動帶入" /></label>
               <label><span>LINE 訊息預覽</span><textarea value={lineMessage} readOnly rows={5} style={{ width: '100%', resize: 'vertical' }} /></label>
             </div>
 
+            <div className="subtle-text" style={{ marginBottom: 10 }}>自動帶入：林莞、奕君、佩珊＝二部；嘉陽、詩涵、晏婷＝一部；若儀的部門請手動選擇。日期預設為今天，所有欄位新增後皆可自行修改或刪除。</div>
+
             <div style={{ border: '1px solid #dce5d4', borderRadius: 14, padding: 12, marginBottom: 14, background: '#fafcf8' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                <div><strong style={{ color: '#315985' }}>整批複製貼上</strong><div className="subtle-text">可直接從 Excel / Google 試算表貼上。欄位順序：送刻日期｜部門｜行政｜雇主 / 部門｜姓名 / 內容｜印章種類｜規格 / 備註｜數量｜單價。後四欄可省略，預設木頭章／1 顆／$40。</div></div>
+                <div><strong style={{ color: '#315985' }}>整批複製貼上</strong><div className="subtle-text">日常只要貼上兩欄：雇主｜工人姓名／內容。送刻日期自動帶今天，部門與行政依登入者帶入，預設木頭章／1 顆／$40；貼入後仍可逐筆修改。若儀請手動選擇部門。</div></div>
                 <button type="button" className="primary-button" disabled={importingPaste} onClick={importPasteRows}>{importingPaste ? '新增中...' : '批次新增'}</button>
               </div>
-              <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={6} placeholder={'2026-08-19\t二部\t林莞\t宏電\t阿沙里\n2026-08-19\t一部\t嘉陽\t美德耐\t黃美奈秀'} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
+              <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={6} placeholder={'宏電\t阿沙里\n美德耐\t黃美奈秀'} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
             </div>
 
+            <datalist id="stamp-admin-options">
+              {adminOptions.map((admin) => <option key={admin.id} value={admin.display_name} />)}
+              {SENDER_OPTIONS.map((item) => <option key={`sender-${item.name}`} value={item.name} />)}
+            </datalist>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ ...tableStyle, minWidth: 1480 }}>
                 <thead>
@@ -482,8 +529,8 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                     <th style={{ ...thStyle, width: 110 }}>送刻日期</th>
                     <th style={{ ...thStyle, width: 90 }}>部門</th>
                     <th style={{ ...thStyle, width: 130 }}>行政</th>
-                    <th style={{ ...thStyle, width: 190 }}>雇主 / 部門</th>
-                    <th style={{ ...thStyle, width: 190 }}>姓名 / 內容</th>
+                    <th style={{ ...thStyle, width: 190 }}>雇主</th>
+                    <th style={{ ...thStyle, width: 190 }}>工人姓名 / 內容</th>
                     <th style={{ ...thStyle, width: 160 }}>印章種類</th>
                     <th style={{ ...thStyle, width: 180 }}>規格 / 備註</th>
                     <th style={{ ...thStyle, width: 75 }}>數量</th>
@@ -501,7 +548,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                         <td style={tdStyle}><input type="checkbox" checked={selectedIds.has(order.id)} onChange={() => toggleSelected(order.id)} /></td>
                         <td style={tdStyle}><input style={inputStyle} type="date" value={draft.stamp_date} onChange={(e) => patchDraft(order.id, { stamp_date: e.target.value })} /></td>
                         <td style={tdStyle}><select style={inputStyle} value={draft.department} onChange={(e) => patchDraft(order.id, { department: e.target.value })}><option value="">請選擇</option>{DEPARTMENTS.map((department) => <option key={department} value={department}>{department}</option>)}</select></td>
-                        <td style={tdStyle}><select style={inputStyle} value={draft.admin_name} onChange={(e) => patchDraft(order.id, { admin_name: e.target.value })}><option value="">請選擇</option>{adminOptions.map((admin) => <option key={admin.id} value={admin.display_name}>{admin.display_name}</option>)}</select></td>
+                        <td style={tdStyle}><input style={inputStyle} list="stamp-admin-options" value={draft.admin_name} onChange={(e) => { const adminName = e.target.value; const mappedDepartment = defaultDepartmentForAdmin(adminName); patchDraft(order.id, { admin_name: adminName, ...(mappedDepartment ? { department: mappedDepartment } : {}) }); }} placeholder="行政" /></td>
                         <td style={tdStyle}><input style={inputStyle} value={draft.employer_department} onChange={(e) => patchDraft(order.id, { employer_department: e.target.value })} /></td>
                         <td style={tdStyle}><input style={inputStyle} value={draft.name_content} onChange={(e) => patchDraft(order.id, { name_content: e.target.value })} /></td>
                         <td style={tdStyle}><select style={inputStyle} value={draft.stamp_type} onChange={(e) => changeStampType(order.id, e.target.value)}>{STAMP_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></td>
@@ -530,15 +577,31 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                   <button type="button" className="secondary-button mini" onClick={() => setExpandedBatchIds((current) => { const next = new Set(current); if (next.has(batch.id)) next.delete(batch.id); else next.add(batch.id); return next; })}>{expanded ? '收合' : '展開'}</button>
                   <strong style={{ color: '#2f6198', fontSize: 18 }}>{batch.batch_no}</strong>
                   <div><span style={{ display: 'block', color: '#7b8494', fontSize: 11 }}>送刻日期</span><b>{formatDate(batch.sent_date)}</b></div>
-                  <div><span style={{ display: 'block', color: '#7b8494', fontSize: 11 }}>送刻者</span><b>{batch.sender_name}{batch.sender_extension ? `｜分機 ${batch.sender_extension}` : ''}</b></div>
+                  <div><span style={{ display: 'block', color: '#7b8494', fontSize: 11 }}>送刻者</span><b>{batch.sender_name}</b></div>
                   <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}><span>一部 {batch.dept1_count} 顆｜${formatMoney(batch.dept1_amount)}</span><span>二部 {batch.dept2_count} 顆｜${formatMoney(batch.dept2_amount)}</span><strong>總計 {batch.total_count} 顆｜${formatMoney(batch.total_amount)}</strong></div>
                   <div style={{ display: 'flex', gap: 8 }}><button type="button" className="secondary-button mini" onClick={() => copyLine(batch.line_message ?? makeLineMessage({ senderName: batch.sender_name, senderExtension: batch.sender_extension ?? '', requiredDate: batch.required_date, orders: rows }))}>複製 LINE</button><button type="button" className="secondary-button mini" onClick={() => printReceipt(rows)}>列印簽收單</button></div>
                 </div>
                 {expanded ? (
                   <div style={{ borderTop: '1px solid #e7ece3', padding: 14, overflowX: 'auto' }}>
-                    <table style={{ ...tableStyle, minWidth: 1100 }}>
-                      <thead><tr><th style={thStyle}>送刻日期</th><th style={thStyle}>部門</th><th style={thStyle}>行政</th><th style={thStyle}>雇主 / 部門</th><th style={thStyle}>姓名 / 內容</th><th style={thStyle}>印章種類</th><th style={thStyle}>規格 / 備註</th><th style={thStyle}>數量</th><th style={thStyle}>金額</th></tr></thead>
-                      <tbody>{rows.map((row) => <tr key={row.id}><td style={tdStyle}>{row.stamp_date}</td><td style={tdStyle}>{row.department}</td><td style={tdStyle}>{row.admin_name}</td><td style={tdStyle}>{row.employer_department}</td><td style={tdStyle}>{row.name_content}</td><td style={tdStyle}>{row.stamp_type}</td><td style={tdStyle}>{row.spec_note}</td><td style={tdStyle}>{row.quantity}</td><td style={tdStyle}>${formatMoney(orderAmount(row))}</td></tr>)}</tbody>
+                    <table style={{ ...tableStyle, minWidth: 1450 }}>
+                      <thead><tr><th style={thStyle}>送刻日期</th><th style={thStyle}>部門</th><th style={thStyle}>行政</th><th style={thStyle}>雇主</th><th style={thStyle}>工人姓名 / 內容</th><th style={thStyle}>印章種類</th><th style={thStyle}>規格 / 備註</th><th style={thStyle}>數量</th><th style={thStyle}>單價</th><th style={thStyle}>金額</th><th style={thStyle}>操作</th></tr></thead>
+                      <tbody>{rows.map((row) => {
+                        const draft = drafts[row.id] ?? orderToDraft(row);
+                        const amount = Number(draft.quantity || 0) * Number(draft.unit_price || 0);
+                        return <tr key={row.id}>
+                          <td style={tdStyle}><input style={inputStyle} type="date" value={draft.stamp_date} onChange={(e) => patchDraft(row.id, { stamp_date: e.target.value })} /></td>
+                          <td style={tdStyle}><select style={inputStyle} value={draft.department} onChange={(e) => patchDraft(row.id, { department: e.target.value })}><option value="">請選擇</option>{DEPARTMENTS.map((department) => <option key={department} value={department}>{department}</option>)}</select></td>
+                          <td style={tdStyle}><input style={inputStyle} value={draft.admin_name} onChange={(e) => { const adminName = e.target.value; const mappedDepartment = defaultDepartmentForAdmin(adminName); patchDraft(row.id, { admin_name: adminName, ...(mappedDepartment ? { department: mappedDepartment } : {}) }); }} /></td>
+                          <td style={tdStyle}><input style={inputStyle} value={draft.employer_department} onChange={(e) => patchDraft(row.id, { employer_department: e.target.value })} /></td>
+                          <td style={tdStyle}><input style={inputStyle} value={draft.name_content} onChange={(e) => patchDraft(row.id, { name_content: e.target.value })} /></td>
+                          <td style={tdStyle}><select style={inputStyle} value={draft.stamp_type} onChange={(e) => changeStampType(row.id, e.target.value)}>{STAMP_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></td>
+                          <td style={tdStyle}><input style={inputStyle} value={draft.spec_note} onChange={(e) => patchDraft(row.id, { spec_note: e.target.value })} /></td>
+                          <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.quantity} onChange={(e) => patchDraft(row.id, { quantity: e.target.value.replace(/\D/g, '') })} /></td>
+                          <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.unit_price} onChange={(e) => patchDraft(row.id, { unit_price: e.target.value.replace(/[^\d.]/g, '') })} /></td>
+                          <td style={{ ...tdStyle, fontWeight: 900, color: '#27548a', whiteSpace: 'nowrap' }}>${formatMoney(amount)}</td>
+                          <td style={tdStyle}><div style={{ display: 'flex', gap: 6 }}><button type="button" className="secondary-button mini" disabled={savingId === row.id} onClick={() => saveRow(row)}>{savingId === row.id ? '儲存中' : '儲存'}</button><button type="button" className="danger-button mini" onClick={() => removeRow(row)}>刪除</button></div></td>
+                        </tr>;
+                      })}</tbody>
                     </table>
                     <div style={{ marginTop: 12, background: '#f7f9fc', borderRadius: 12, padding: 12, whiteSpace: 'pre-wrap', fontSize: 13 }}>{batch.line_message}</div>
                   </div>
