@@ -95,9 +95,9 @@ function lineDate(dateText: string) {
 }
 
 function stampPreset(type: string) {
-  if (type === '木頭章') return { spec: '木頭章', price: 40 };
+  if (type === '木頭章') return { spec: '', price: 40 };
   if (type === '連續章（姓名章）') return { spec: '長 1.2 × 寬 0.8', price: 0 };
-  if (type === '藍色連續章') return { spec: '不加框｜長 3 × 寬 1', price: 0 };
+  if (type === '藍色連續章') return { spec: '不加框｜長 3 × 寬 1', price: 140 };
   return { spec: '', price: 0 };
 }
 
@@ -116,11 +116,39 @@ function makeLineMessage(params: {
   requiredDate: string;
   orders: StampOrder[];
 }) {
-  const dept1 = params.orders.filter((order) => order.department === '一部');
-  const dept2 = params.orders.filter((order) => order.department === '二部');
-  const dept1Amount = dept1.reduce((sum, order) => sum + orderAmount(order), 0);
-  const dept2Amount = dept2.reduce((sum, order) => sum + orderAmount(order), 0);
-  const names = params.orders.map((order) => order.name_content.trim()).filter(Boolean);
+  const woodOrders = params.orders.filter((order) => order.stamp_type === '木頭章');
+  const specialOrders = params.orders.filter((order) => order.stamp_type !== '木頭章');
+  const woodDept1Amount = woodOrders
+    .filter((order) => order.department === '一部')
+    .reduce((sum, order) => sum + orderAmount(order), 0);
+  const woodDept2Amount = woodOrders
+    .filter((order) => order.department === '二部')
+    .reduce((sum, order) => sum + orderAmount(order), 0);
+
+  const receiptLines: string[] = ['收據請協助開立：'];
+  const woodReceiptParts: string[] = [];
+  if (woodDept1Amount > 0) woodReceiptParts.push(`一張(木頭章－一部)$${formatMoney(woodDept1Amount)}`);
+  if (woodDept2Amount > 0) woodReceiptParts.push(`一張(木頭章－二部)$${formatMoney(woodDept2Amount)}`);
+  if (woodReceiptParts.length) receiptLines.push(woodReceiptParts.join('、'));
+  if (specialOrders.length) {
+    receiptLines.push('其他印章請各自單獨開一張收據：');
+    specialOrders.forEach((order) => {
+      const spec = String(order.spec_note ?? '').trim();
+      const detail = [order.name_content.trim(), order.stamp_type, spec].filter(Boolean).join('｜');
+      receiptLines.push(`一張(${detail})$${formatMoney(orderAmount(order))}`);
+    });
+  }
+
+  const orderLines = params.orders
+    .map((order) => {
+      const name = order.name_content.trim();
+      if (!name) return '';
+      if (order.stamp_type === '木頭章') return name;
+      const spec = String(order.spec_note ?? '').trim();
+      return [name, order.stamp_type, spec].filter(Boolean).join('｜');
+    })
+    .filter(Boolean);
+
   const intro = params.senderExtension.trim()
     ? `您好，我是分機 ${params.senderExtension.trim()} ${params.senderName.trim()}`
     : `您好，我是 ${params.senderName.trim()}`;
@@ -128,10 +156,9 @@ function makeLineMessage(params: {
     intro,
     '麻煩您協助刻章，謝謝您。',
     `請幫忙${lineDate(params.requiredDate)}下午4點以前，方便時協助送來即可。`,
-    '收據請協助開立兩張：',
-    `一張(一部)$${formatMoney(dept1Amount)}、一張(二部)$${formatMoney(dept2Amount)}`,
+    ...receiptLines,
     '工人姓名如下：',
-    ...names
+    ...orderLines
   ].join('\n');
 }
 
@@ -151,7 +178,7 @@ function receiptHtml(rows: StampOrder[]) {
         <td>${escapeHtml(row.employer_department)}</td>
         <td>${escapeHtml(row.name_content)}</td>
         <td>${escapeHtml(row.stamp_type)}</td>
-        <td>${escapeHtml(row.spec_note ?? '')}</td>
+        <td>${row.stamp_type === '木頭章' ? '' : escapeHtml(row.spec_note ?? '')}</td>
         <td>${row.quantity}</td>
         <td>$${formatMoney(orderAmount(row))}</td>
       </tr>`).join('');
@@ -315,7 +342,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
         employer_department: '',
         name_content: '',
         stamp_type: '木頭章',
-        spec_note: '木頭章',
+        spec_note: '',
         quantity: 1,
         unit_price: 40
       };
@@ -437,7 +464,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
         employer_department: '',
         name_content: '',
         stamp_type: '木頭章',
-        spec_note: '木頭章',
+        spec_note: '',
         quantity: 1,
         unit_price: 40
       }, profile);
@@ -470,7 +497,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
         employer_department: draft.employer_department.trim(),
         name_content: draft.name_content.trim(),
         stamp_type: draft.stamp_type,
-        spec_note: draft.spec_note.trim() || null,
+        spec_note: draft.stamp_type === '木頭章' ? null : (draft.spec_note.trim() || null),
         quantity,
         unit_price: unitPrice
       }, profile);
@@ -669,7 +696,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                         <td style={tdStyle}><input style={inputStyle} value={draft.employer_department} onChange={(e) => patchDraft(order.id, { employer_department: e.target.value })} /></td>
                         <td style={tdStyle}><input style={inputStyle} value={draft.name_content} onChange={(e) => patchDraft(order.id, { name_content: e.target.value })} /></td>
                         <td style={tdStyle}><select style={inputStyle} value={draft.stamp_type} onChange={(e) => changeStampType(order.id, e.target.value)}>{STAMP_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></td>
-                        <td style={tdStyle}><input style={inputStyle} value={draft.spec_note} onChange={(e) => patchDraft(order.id, { spec_note: e.target.value })} /></td>
+                        <td style={tdStyle}>{draft.stamp_type === '木頭章' ? <span style={{ color: '#9aa4b2' }}>—</span> : <input style={inputStyle} value={draft.spec_note} onChange={(e) => patchDraft(order.id, { spec_note: e.target.value })} />}</td>
                         <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.quantity} onChange={(e) => patchDraft(order.id, { quantity: e.target.value.replace(/\D/g, '') })} /></td>
                         <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.unit_price} onChange={(e) => patchDraft(order.id, { unit_price: e.target.value.replace(/[^\d.]/g, '') })} /></td>
                         <td style={{ ...tdStyle, fontWeight: 900, color: '#27548a', whiteSpace: 'nowrap' }}>${formatMoney(amount)}</td>
@@ -680,7 +707,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                 </tbody>
               </table>
             </div>
-            <p className="subtle-text" style={{ marginTop: 10 }}>印章種類預設：木頭章 $40；連續章（姓名章）規格長 1.2 × 寬 0.8；藍色連續章為不加框、長 3 × 寬 1。特殊印章與連續章單價可依實際報價輸入。</p>
+            <p className="subtle-text" style={{ marginTop: 10 }}>印章種類預設：木頭章 $40（不顯示規格備註）；連續章（姓名章）規格長 1.2 × 寬 0.8；藍色連續章 $140、不加框、長 3 × 寬 1。除木頭章外，其他印章請各自單獨開一張收據。特殊印章與其他連續章單價仍可依實際報價調整。</p>
           </section>
         </>
       ) : (
@@ -712,7 +739,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                           <td style={tdStyle}><input style={inputStyle} value={draft.employer_department} onChange={(e) => patchDraft(row.id, { employer_department: e.target.value })} /></td>
                           <td style={tdStyle}><input style={inputStyle} value={draft.name_content} onChange={(e) => patchDraft(row.id, { name_content: e.target.value })} /></td>
                           <td style={tdStyle}><select style={inputStyle} value={draft.stamp_type} onChange={(e) => changeStampType(row.id, e.target.value)}>{STAMP_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></td>
-                          <td style={tdStyle}><input style={inputStyle} value={draft.spec_note} onChange={(e) => patchDraft(row.id, { spec_note: e.target.value })} /></td>
+                          <td style={tdStyle}>{draft.stamp_type === '木頭章' ? <span style={{ color: '#9aa4b2' }}>—</span> : <input style={inputStyle} value={draft.spec_note} onChange={(e) => patchDraft(row.id, { spec_note: e.target.value })} />}</td>
                           <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.quantity} onChange={(e) => patchDraft(row.id, { quantity: e.target.value.replace(/\D/g, '') })} /></td>
                           <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.unit_price} onChange={(e) => patchDraft(row.id, { unit_price: e.target.value.replace(/[^\d.]/g, '') })} /></td>
                           <td style={{ ...tdStyle, fontWeight: 900, color: '#27548a', whiteSpace: 'nowrap' }}>${formatMoney(amount)}</td>
