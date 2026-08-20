@@ -365,11 +365,11 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     @page { size:A4 portrait; margin:0; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Arial, "Microsoft JhengHei", sans-serif; color:#111; }
-    .a4-page { position:relative; width:21cm; height:29.7cm; display:grid; grid-template-rows:14.85cm 14.85cm; page-break-after:always; overflow:hidden; }
+    .a4-page { position:relative; width:21cm; height:29.7cm; page-break-after:always; overflow:hidden; }
     .a4-page:last-child { page-break-after:auto; }
-    .a4-page::before { content:""; position:absolute; left:0; right:0; top:14.85cm; border-top:1px dashed #777; z-index:5; pointer-events:none; }
-    .a4-page::after { content:"A5 裁切線"; position:absolute; top:14.85cm; right:0.25cm; transform:translateY(-50%); background:#fff; padding:0 3px; font-size:6.5pt; color:#777; z-index:6; }
-    .claim-half { position:relative; height:14.85cm; padding:0.8cm 0.8cm 0.35cm; overflow:hidden; border-bottom:1px dashed #777; }
+    .a4-page::before { content:""; position:absolute; left:0; right:0; top:50%; border-top:1px dashed #777; z-index:20; pointer-events:none; }
+    .a4-page::after { content:"A5 裁切線"; position:absolute; top:50%; right:0.25cm; transform:translateY(-50%); background:#fff; padding:0 3px; font-size:6.5pt; color:#777; z-index:21; }
+    .claim-half { position:absolute; left:0; top:0; width:21cm; height:14.85cm; padding:0.8cm 0.8cm 0.35cm; overflow:hidden; }
     .company-line { text-align:center; font-weight:800; font-size:12pt; line-height:1.2; margin:0 0 3px; white-space:nowrap; }
     h1 { text-align:center; font-size:18pt; letter-spacing:6px; margin:2px 0 3px; }
     .claim-meta { display:grid; grid-template-columns:minmax(0,1fr) 3.4cm; border:1px solid #222; border-bottom:0; min-height:1.05cm; }
@@ -389,7 +389,7 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:9.5pt; padding:6px 2px 0; }
     .form-code { text-align:right; font-size:7.5pt; margin-top:2px; }
 
-    .detail-half { height:14.85cm; padding:0.35cm 0.8cm 0.8cm; overflow:hidden; }
+    .detail-half { position:absolute; left:0; top:14.85cm; width:21cm; height:14.85cm; padding:0.35cm 0.8cm 0.8cm; overflow:hidden; }
     .detail-title { text-align:center; font-size:13pt; font-weight:900; letter-spacing:1px; margin-bottom:5px; }
     .detail-meta { display:flex; justify-content:space-between; gap:10px; font-size:8.5pt; font-weight:800; margin:0 1px 5px; }
     .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:8pt; }
