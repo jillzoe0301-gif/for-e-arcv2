@@ -337,7 +337,6 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
       <section class="claim-half">
         <div class="company-line">□灃康人力資源 / □灃禾管理顧問 / □乾坤國際　□豐禾海外貿易 / □全方位培訓協會</div>
         <h1>請 款 單</h1>
-        <div class="claim-kind">${escapeHtml(claimGroupLabel(department, kind))}</div>
         <div class="claim-meta">
           <div class="department-block"><strong>請款部門：</strong><div>${deptChecks}</div></div>
           <div class="claim-date"><strong>日期：</strong>${escapeHtml(requestDate)}</div>
@@ -352,7 +351,7 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
       </section>
 
       <section class="detail-half">
-        <div class="detail-title">附件明細｜${escapeHtml(claimGroupLabel(department, kind))}</div>
+        <div class="detail-title">附件明細</div>
         <div class="detail-meta"><span>送刻日期：${escapeHtml(formatDate(rows[0]?.stamp_date || params.requestDate || todayTaipei()))}</span><span>共 ${rows.length} 筆／${quantity} 顆</span><span>總金額：$${formatMoney(total)}</span></div>
         <table class="detail-table">
           <thead><tr><th>#</th><th>行政</th><th>雇主</th><th>工人 / 內容</th><th>項目</th><th>規格</th><th>數量</th><th>單價</th><th>金額</th></tr></thead>
@@ -363,38 +362,39 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
   }).join('');
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>印章請款單</title><style>
-    @page { size:A4 portrait; margin:0.8cm; }
+    @page { size:A4 portrait; margin:0; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Arial, "Microsoft JhengHei", sans-serif; color:#111; }
-    .a4-page { height:28.1cm; display:grid; grid-template-rows:48% 52%; page-break-after:always; overflow:hidden; }
+    .a4-page { position:relative; width:21cm; height:29.7cm; display:grid; grid-template-rows:14.85cm 14.85cm; page-break-after:always; overflow:hidden; }
     .a4-page:last-child { page-break-after:auto; }
-    .claim-half { position:relative; padding:0.04cm 0.08cm 0.12cm; overflow:hidden; border-bottom:1px dashed #999; }
-    .company-line { text-align:center; font-weight:800; font-size:12px; line-height:1.25; margin:0 0 2px; white-space:nowrap; }
-    h1 { text-align:center; font-size:22px; letter-spacing:6px; margin:2px 0 2px; }
-    .claim-kind { text-align:center; font-size:12px; font-weight:900; color:#334155; margin-bottom:4px; }
-    .claim-meta { display:grid; grid-template-columns:minmax(0,1fr) 125px; border:1px solid #222; border-bottom:0; min-height:38px; }
-    .department-block { display:flex; gap:7px; align-items:center; padding:4px 6px; font-size:9.5px; line-height:1.5; overflow:hidden; }
-    .department-block strong { font-size:11px; white-space:nowrap; }
+    .a4-page::before { content:""; position:absolute; left:0; right:0; top:14.85cm; border-top:1px dashed #777; z-index:5; pointer-events:none; }
+    .a4-page::after { content:"A5 裁切線"; position:absolute; top:14.85cm; right:0.25cm; transform:translateY(-50%); background:#fff; padding:0 3px; font-size:6.5pt; color:#777; z-index:6; }
+    .claim-half { position:relative; height:14.85cm; padding:0.8cm 0.8cm 0.35cm; overflow:hidden; border-bottom:1px dashed #777; }
+    .company-line { text-align:center; font-weight:800; font-size:12pt; line-height:1.2; margin:0 0 3px; white-space:nowrap; }
+    h1 { text-align:center; font-size:18pt; letter-spacing:6px; margin:2px 0 3px; }
+    .claim-meta { display:grid; grid-template-columns:minmax(0,1fr) 3.4cm; border:1px solid #222; border-bottom:0; min-height:1.05cm; }
+    .department-block { display:flex; gap:8px; align-items:center; padding:4px 7px; font-size:8.5pt; line-height:1.45; overflow:hidden; }
+    .department-block strong { font-size:11pt; white-space:nowrap; }
     .department-block div { white-space:normal; }
-    .claim-date { border-left:1px solid #222; display:flex; align-items:center; justify-content:center; gap:4px; font-size:11.5px; white-space:nowrap; }
-    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:11.5px; }
-    .claim-table th,.claim-table td { border:1px solid #222; padding:4px 5px; height:28px; vertical-align:middle; }
-    .claim-table th { font-size:12px; font-weight:900; text-align:center; }
+    .claim-date { border-left:1px solid #222; display:flex; align-items:center; justify-content:center; gap:4px; font-size:9.5pt; white-space:nowrap; }
+    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9.5pt; }
+    .claim-table th,.claim-table td { border:1px solid #222; padding:4px 5px; height:0.82cm; vertical-align:middle; }
+    .claim-table th { font-size:10pt; font-weight:900; text-align:center; }
     .claim-table .seq { width:7%; text-align:center; }
-    .claim-table .item { width:51%; line-height:1.2; }
-    .claim-table .num { width:12%; text-align:center; }
+    .claim-table .item { width:49%; line-height:1.2; }
+    .claim-table .num { width:13%; text-align:center; }
     .claim-table .money { width:15%; text-align:right; white-space:nowrap; }
-    .claim-table .payee,.claim-table .total-label { text-align:center; font-size:11.5px; font-weight:800; }
-    .claim-table .total { font-weight:900; font-size:12.5px; }
-    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:11.5px; padding:6px 2px 0; }
-    .form-code { text-align:right; font-size:9px; margin-top:2px; }
+    .claim-table .payee,.claim-table .total-label { text-align:center; font-size:9.5pt; font-weight:800; }
+    .claim-table .total { font-weight:900; font-size:10.5pt; }
+    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:9.5pt; padding:6px 2px 0; }
+    .form-code { text-align:right; font-size:7.5pt; margin-top:2px; }
 
-    .detail-half { padding:0.18cm 0.08cm 0; overflow:hidden; }
-    .detail-title { text-align:center; font-size:16px; font-weight:900; letter-spacing:1px; margin-bottom:4px; }
-    .detail-meta { display:flex; justify-content:space-between; gap:10px; font-size:10px; font-weight:800; margin:0 1px 5px; }
-    .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9.3px; }
-    .detail-table th,.detail-table td { border:1px solid #777; padding:3px 3px; height:20px; vertical-align:middle; line-height:1.15; word-break:break-word; }
-    .detail-table th { background:#f3f6ef; font-weight:900; text-align:center; font-size:9.6px; }
+    .detail-half { height:14.85cm; padding:0.35cm 0.8cm 0.8cm; overflow:hidden; }
+    .detail-title { text-align:center; font-size:13pt; font-weight:900; letter-spacing:1px; margin-bottom:5px; }
+    .detail-meta { display:flex; justify-content:space-between; gap:10px; font-size:8.5pt; font-weight:800; margin:0 1px 5px; }
+    .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:8pt; }
+    .detail-table th,.detail-table td { border:1px solid #777; padding:3px 3px; height:0.56cm; vertical-align:middle; line-height:1.15; word-break:break-word; }
+    .detail-table th { background:#f3f6ef; font-weight:900; text-align:center; font-size:8.3pt; }
     .detail-table th:nth-child(1),.detail-table td:nth-child(1){width:4%}
     .detail-table th:nth-child(2),.detail-table td:nth-child(2){width:8%}
     .detail-table th:nth-child(3),.detail-table td:nth-child(3){width:16%}
