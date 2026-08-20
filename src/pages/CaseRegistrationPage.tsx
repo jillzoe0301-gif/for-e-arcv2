@@ -1,4 +1,4 @@
-import { ClipboardEvent, FormEvent, useMemo, useState } from 'react';
+import { ClipboardEvent, FormEvent, useMemo, useRef, useState } from 'react';
 import { createCases } from '../api/repository';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { PageHeader } from '../components/PageHeader';
@@ -62,10 +62,26 @@ export function CaseRegistrationPage({
   const [rows, setRows] = useState<BatchCaseRow[]>(() => Array.from({ length: 10 }, makeBatchDefaultRow));
   const [batchFill, setBatchFill] = useState<BatchFill>({ handler_name: firstHandler, broker_id: firstBroker, employer_name: '', entry_date: '', application_date: todayTaipei() });
   const [submitting, setSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
 
   const handlers = useMemo(() => data.people.filter((item) => item.is_enabled && item.show_as_handler), [data.people]);
   const brokers = useMemo(() => data.brokers.filter((item) => item.is_enabled), [data.brokers]);
   const appItems = useMemo(() => data.applicationItems.filter((item) => item.is_enabled), [data.applicationItems]);
+
+  function beginSubmit() {
+    if (submitLockRef.current) {
+      pushToast({ type: 'info', title: '案件正在送出中，請勿重複送出。' });
+      return false;
+    }
+    submitLockRef.current = true;
+    setSubmitting(true);
+    return true;
+  }
+
+  function endSubmit() {
+    submitLockRef.current = false;
+    setSubmitting(false);
+  }
 
   function itemAmount(itemId: string): string {
     const item = data.applicationItems.find((entry) => entry.id === itemId);
@@ -202,6 +218,7 @@ export function CaseRegistrationPage({
   function validateRows(inputRows: BatchCaseRow[]): { valid: RegisterCaseInput[]; errors: BatchCaseRow[] } {
     const valid: RegisterCaseInput[] = [];
     const errors = inputRows.map((row) => ({ ...row, error: '' }));
+    const seenSubmissionKeys = new Set<string>();
     inputRows.forEach((row, index) => {
       const hasAny = Object.entries(row).some(([key, value]) => key !== 'error' && key !== 'copy_count' && String(value ?? '').trim());
       if (!hasAny) return;
@@ -243,6 +260,22 @@ export function CaseRegistrationPage({
         errors[index].error = '張數格式不正確，請輸入正整數。';
         return;
       }
+      const submissionKey = [
+        row.broker_id,
+        row.employer_name.trim(),
+        row.worker_name.trim(),
+        applicationDate,
+        groupNo,
+        row.application_item_id,
+        money,
+        copyCount
+      ].join('|').toLowerCase();
+      if (seenSubmissionKeys.has(submissionKey)) {
+        errors[index].error = '同批資料重複，系統已阻止重複新增。';
+        return;
+      }
+      seenSubmissionKeys.add(submissionKey);
+
       valid.push({
         handler_name: row.handler_name.trim(),
         broker_id: row.broker_id,
@@ -271,7 +304,7 @@ export function CaseRegistrationPage({
       pushToast({ type: 'error', title: '單筆登記失敗', message: errors[0]?.error || '請輸入完整資料' });
       return;
     }
-    setSubmitting(true);
+    if (!beginSubmit()) return;
     try {
       await createCases(valid, data, profile);
       pushToast({ type: 'success', title: '案件已登記' });
@@ -280,7 +313,7 @@ export function CaseRegistrationPage({
     } catch (err) {
       pushToast({ type: 'error', title: '新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
-      setSubmitting(false);
+      endSubmit();
     }
   }
 
@@ -291,7 +324,7 @@ export function CaseRegistrationPage({
       pushToast({ type: 'error', title: '現場申請失敗', message: errors[0]?.error || '請輸入完整資料' });
       return;
     }
-    setSubmitting(true);
+    if (!beginSubmit()) return;
     try {
       await createCases(valid, data, profile, {
         forceStatus: 'pending_pickup',
@@ -305,7 +338,7 @@ export function CaseRegistrationPage({
     } catch (err) {
       pushToast({ type: 'error', title: '現場申請失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
-      setSubmitting(false);
+      endSubmit();
     }
   }
 
@@ -317,7 +350,7 @@ export function CaseRegistrationPage({
       pushToast({ type: 'error', title: '補登失敗', message: errors[0]?.error || '請輸入完整資料' });
       return;
     }
-    setSubmitting(true);
+    if (!beginSubmit()) return;
     try {
       const itemName = data.applicationItems.find((item) => item.id === valid[0].application_item_id)?.name ?? '';
       const directArchive = SUPPLEMENT_ARCHIVE_ITEMS.has(itemName);
@@ -337,7 +370,7 @@ export function CaseRegistrationPage({
     } catch (err) {
       pushToast({ type: 'error', title: '補登失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
-      setSubmitting(false);
+      endSubmit();
     }
   }
 
@@ -353,7 +386,7 @@ export function CaseRegistrationPage({
       pushToast({ type: 'error', title: '批次補登失敗', message: '沒有可補登的有效資料，請檢查紅字列。' });
       return;
     }
-    setSubmitting(true);
+    if (!beginSubmit()) return;
     try {
       const pickupRows = valid.filter((row) => {
         const itemName = data.applicationItems.find((item) => item.id === row.application_item_id)?.name ?? '';
@@ -388,7 +421,7 @@ export function CaseRegistrationPage({
     } catch (err) {
       pushToast({ type: 'error', title: '批次補登失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
-      setSubmitting(false);
+      endSubmit();
     }
   }
 
@@ -404,7 +437,7 @@ export function CaseRegistrationPage({
       pushToast({ type: 'error', title: '批次送件失敗', message: '沒有可送出的有效資料，請檢查紅字列。' });
       return;
     }
-    setSubmitting(true);
+    if (!beginSubmit()) return;
     try {
       await createCases(valid, data, profile);
       pushToast({ type: 'success', title: `批次送件完成`, message: `已新增 ${valid.length} 筆案件。` });
@@ -413,7 +446,7 @@ export function CaseRegistrationPage({
     } catch (err) {
       pushToast({ type: 'error', title: '批次新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
-      setSubmitting(false);
+      endSubmit();
     }
   }
 
