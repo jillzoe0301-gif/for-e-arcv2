@@ -76,6 +76,21 @@ function orderToDraft(order: StampOrder): Draft {
   };
 }
 
+
+function draftChanged(order: StampOrder, draft: Draft) {
+  return (
+    draft.stamp_date !== String(order.stamp_date ?? '') ||
+    draft.department !== String(order.department ?? '') ||
+    draft.admin_name !== String(order.admin_name ?? '') ||
+    draft.employer_department.trim() !== String(order.employer_department ?? '').trim() ||
+    draft.name_content.trim() !== String(order.name_content ?? '').trim() ||
+    draft.stamp_type !== String(order.stamp_type ?? '') ||
+    (draft.stamp_type === '木頭章' ? '' : draft.spec_note.trim()) !== (order.stamp_type === '木頭章' ? '' : String(order.spec_note ?? '').trim()) ||
+    Number(draft.quantity || 0) !== Number(order.quantity ?? 0) ||
+    Number(draft.unit_price || 0) !== Number(order.unit_price ?? 0)
+  );
+}
+
 function addDays(dateText: string, days: number) {
   const [year, month, day] = dateText.split('-').map(Number);
   const date = new Date(year, month - 1, day, 12, 0, 0);
@@ -258,6 +273,10 @@ function claimSpecialItemName(order: StampOrder) {
   ].filter(Boolean).join('｜');
 }
 
+function claimGroupLabel(department: string, kind: 'wood' | 'special') {
+  return `${department}｜${kind === 'wood' ? '一般木頭章' : '特殊印章'}`;
+}
+
 function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestDate: string }) {
   const departmentOrder = ['一部', '二部'];
   const departments = Array.from(new Set(params.rows.map((row) => row.department?.trim() || '未指定')))
@@ -268,37 +287,32 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
       return a.localeCompare(b, 'zh-Hant');
     });
 
-  const pages = departments.map((department) => {
-    const rows = params.rows.filter((row) => (row.department?.trim() || '未指定') === department);
-    const woodRows = rows.filter((row) => row.stamp_type === '木頭章');
-    const specialRows = rows.filter((row) => row.stamp_type !== '木頭章');
-    const woodQuantity = woodRows.reduce((sum, row) => sum + Math.max(1, Number(row.quantity ?? 1)), 0);
-    const woodAmount = woodRows.reduce((sum, row) => sum + orderAmount(row), 0);
-    const woodUnitPrice = woodRows.length ? Number(woodRows[0].unit_price ?? 40) : 40;
+  const groups = departments.flatMap((department) => {
+    const deptRows = params.rows.filter((row) => (row.department?.trim() || '未指定') === department);
+    const woodRows = deptRows.filter((row) => row.stamp_type === '木頭章');
+    const specialRows = deptRows.filter((row) => row.stamp_type !== '木頭章');
+    const output: Array<{ department: string; kind: 'wood' | 'special'; rows: StampOrder[] }> = [];
+    if (woodRows.length) output.push({ department, kind: 'wood', rows: woodRows });
+    if (specialRows.length) output.push({ department, kind: 'special', rows: specialRows });
+    return output;
+  });
+
+  const pages = groups.map(({ department, kind, rows }) => {
+    const quantity = rows.reduce((sum, row) => sum + Math.max(1, Number(row.quantity ?? 1)), 0);
     const total = rows.reduce((sum, row) => sum + orderAmount(row), 0);
     const requestDate = formatDate(params.requestDate || rows[0]?.stamp_date || todayTaipei());
+    const unitPrices = Array.from(new Set(rows.map((row) => Number(row.unit_price ?? 0))));
+    const unitPriceText = unitPrices.length === 1 ? `$${formatMoney(unitPrices[0])}` : '詳附件';
+    const itemText = kind === 'wood' ? '工人開戶印章一批詳附件明細' : '特殊印章一批詳附件明細';
 
-    const claimRows: string[] = [];
-    if (woodRows.length) {
-      claimRows.push(`<tr>
-        <td class="seq">${claimRows.length + 1}</td>
-        <td class="item">工人開戶印章一批詳附件明細</td>
-        <td class="num">${woodQuantity}</td>
-        <td class="money">$${formatMoney(woodUnitPrice)}</td>
-        <td class="money">$${formatMoney(woodAmount)}</td>
-      </tr>`);
-    }
-    specialRows.forEach((row) => {
-      claimRows.push(`<tr>
-        <td class="seq">${claimRows.length + 1}</td>
-        <td class="item special-item">${escapeHtml(claimSpecialItemName(row))}</td>
-        <td class="num">${Math.max(1, Number(row.quantity ?? 1))}</td>
-        <td class="money">$${formatMoney(Number(row.unit_price ?? 0))}</td>
-        <td class="money">$${formatMoney(orderAmount(row))}</td>
-      </tr>`);
-    });
-    const minimumClaimRows = 4;
-    for (let index = claimRows.length; index < minimumClaimRows; index += 1) {
+    const claimRows = [`<tr>
+      <td class="seq">1</td>
+      <td class="item">${escapeHtml(itemText)}</td>
+      <td class="num">${quantity}</td>
+      <td class="money">${unitPriceText}</td>
+      <td class="money">$${formatMoney(total)}</td>
+    </tr>`];
+    for (let index = 1; index < 4; index += 1) {
       claimRows.push(`<tr><td class="seq">${index + 1}</td><td></td><td></td><td></td><td></td></tr>`);
     }
 
@@ -321,10 +335,11 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
 
     return `<section class="a4-page">
       <section class="claim-half">
-        <div class="company-line">□灃康人力資源 / □灃禾管理顧問 / □乾坤國際<br>□豐禾海外貿易 / □全方位培訓協會</div>
+        <div class="company-line">□灃康人力資源 / □灃禾管理顧問 / □乾坤國際　□豐禾海外貿易 / □全方位培訓協會</div>
         <h1>請 款 單</h1>
+        <div class="claim-kind">${escapeHtml(claimGroupLabel(department, kind))}</div>
         <div class="claim-meta">
-          <div class="department-block"><strong>請款<br>部門：</strong><div><div>□總經理室　□數位行銷　□財務稽核　□業務處　□營運處　□協會</div><div>${deptChecks}</div></div></div>
+          <div class="department-block"><strong>請款部門：</strong><div>${deptChecks}</div></div>
           <div class="claim-date"><strong>日期：</strong>${escapeHtml(requestDate)}</div>
         </div>
         <table class="claim-table">
@@ -337,8 +352,8 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
       </section>
 
       <section class="detail-half">
-        <div class="detail-title">附件明細｜${escapeHtml(department)}</div>
-        <div class="detail-meta"><span>送刻日期：${escapeHtml(formatDate(rows[0]?.stamp_date || params.requestDate || todayTaipei()))}</span><span>共 ${rows.length} 筆</span><span>總金額：$${formatMoney(total)}</span></div>
+        <div class="detail-title">附件明細｜${escapeHtml(claimGroupLabel(department, kind))}</div>
+        <div class="detail-meta"><span>送刻日期：${escapeHtml(formatDate(rows[0]?.stamp_date || params.requestDate || todayTaipei()))}</span><span>共 ${rows.length} 筆／${quantity} 顆</span><span>總金額：$${formatMoney(total)}</span></div>
         <table class="detail-table">
           <thead><tr><th>#</th><th>行政</th><th>雇主</th><th>工人 / 內容</th><th>項目</th><th>規格</th><th>數量</th><th>單價</th><th>金額</th></tr></thead>
           <tbody>${detailRows}</tbody>
@@ -348,48 +363,50 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
   }).join('');
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>印章請款單</title><style>
-    @page { size:A4 portrait; margin:0.5cm; }
+    @page { size:A4 portrait; margin:0.8cm; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Arial, "Microsoft JhengHei", sans-serif; color:#111; }
-    .a4-page { height:28.7cm; display:grid; grid-template-rows:50% 50%; page-break-after:always; overflow:hidden; }
+    .a4-page { height:28.1cm; display:grid; grid-template-rows:48% 52%; page-break-after:always; overflow:hidden; }
     .a4-page:last-child { page-break-after:auto; }
-    .claim-half { position:relative; padding:0.03cm 0.04cm 0.12cm; overflow:hidden; border-bottom:1px dashed #999; }
-    .company-line { text-align:center; font-weight:800; font-size:11px; line-height:1.2; margin:0 0 1px; }
-    h1 { text-align:center; font-size:18px; letter-spacing:5px; margin:1px 0 3px; }
-    .claim-meta { display:grid; grid-template-columns:1fr 145px; border:1px solid #222; border-bottom:0; min-height:40px; }
-    .department-block { display:flex; gap:6px; align-items:stretch; padding:3px 5px; font-size:8.5px; line-height:1.55; }
-    .department-block strong { font-size:9.5px; white-space:nowrap; }
-    .claim-date { border-left:1px solid #222; display:flex; align-items:center; justify-content:center; gap:5px; font-size:10.5px; white-space:nowrap; }
-    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9.5px; }
-    .claim-table th,.claim-table td { border:1px solid #222; padding:2px 4px; height:23px; vertical-align:middle; }
-    .claim-table th { font-size:10.5px; font-weight:800; text-align:center; }
+    .claim-half { position:relative; padding:0.04cm 0.08cm 0.12cm; overflow:hidden; border-bottom:1px dashed #999; }
+    .company-line { text-align:center; font-weight:800; font-size:12px; line-height:1.25; margin:0 0 2px; white-space:nowrap; }
+    h1 { text-align:center; font-size:22px; letter-spacing:6px; margin:2px 0 2px; }
+    .claim-kind { text-align:center; font-size:12px; font-weight:900; color:#334155; margin-bottom:4px; }
+    .claim-meta { display:grid; grid-template-columns:minmax(0,1fr) 125px; border:1px solid #222; border-bottom:0; min-height:38px; }
+    .department-block { display:flex; gap:7px; align-items:center; padding:4px 6px; font-size:9.5px; line-height:1.5; overflow:hidden; }
+    .department-block strong { font-size:11px; white-space:nowrap; }
+    .department-block div { white-space:normal; }
+    .claim-date { border-left:1px solid #222; display:flex; align-items:center; justify-content:center; gap:4px; font-size:11.5px; white-space:nowrap; }
+    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:11.5px; }
+    .claim-table th,.claim-table td { border:1px solid #222; padding:4px 5px; height:28px; vertical-align:middle; }
+    .claim-table th { font-size:12px; font-weight:900; text-align:center; }
     .claim-table .seq { width:7%; text-align:center; }
-    .claim-table .item { width:53%; white-space:normal; line-height:1.15; }
-    .claim-table .special-item { font-size:9px; }
+    .claim-table .item { width:51%; line-height:1.2; }
     .claim-table .num { width:12%; text-align:center; }
-    .claim-table .money { width:14%; text-align:right; white-space:nowrap; }
-    .claim-table .payee,.claim-table .total-label { text-align:center; font-size:10.5px; font-weight:700; }
-    .claim-table .total { font-weight:900; }
-    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:10.5px; padding:4px 2px 0; }
-    .form-code { text-align:right; font-size:8.5px; margin-top:1px; }
+    .claim-table .money { width:15%; text-align:right; white-space:nowrap; }
+    .claim-table .payee,.claim-table .total-label { text-align:center; font-size:11.5px; font-weight:800; }
+    .claim-table .total { font-weight:900; font-size:12.5px; }
+    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:11.5px; padding:6px 2px 0; }
+    .form-code { text-align:right; font-size:9px; margin-top:2px; }
 
-    .detail-half { padding:0.16cm 0.04cm 0; overflow:hidden; }
-    .detail-title { text-align:center; font-size:15px; font-weight:900; letter-spacing:1px; margin-bottom:3px; }
-    .detail-meta { display:flex; justify-content:space-between; gap:10px; font-size:9.5px; font-weight:700; margin:0 1px 4px; }
-    .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:8.5px; }
-    .detail-table th,.detail-table td { border:1px solid #777; padding:2px 3px; height:19px; vertical-align:middle; line-height:1.15; }
-    .detail-table th { background:#f3f6ef; font-weight:800; text-align:center; }
+    .detail-half { padding:0.18cm 0.08cm 0; overflow:hidden; }
+    .detail-title { text-align:center; font-size:16px; font-weight:900; letter-spacing:1px; margin-bottom:4px; }
+    .detail-meta { display:flex; justify-content:space-between; gap:10px; font-size:10px; font-weight:800; margin:0 1px 5px; }
+    .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9.3px; }
+    .detail-table th,.detail-table td { border:1px solid #777; padding:3px 3px; height:20px; vertical-align:middle; line-height:1.15; word-break:break-word; }
+    .detail-table th { background:#f3f6ef; font-weight:900; text-align:center; font-size:9.6px; }
     .detail-table th:nth-child(1),.detail-table td:nth-child(1){width:4%}
-    .detail-table th:nth-child(2),.detail-table td:nth-child(2){width:9%}
+    .detail-table th:nth-child(2),.detail-table td:nth-child(2){width:8%}
     .detail-table th:nth-child(3),.detail-table td:nth-child(3){width:16%}
     .detail-table th:nth-child(4),.detail-table td:nth-child(4){width:18%}
     .detail-table th:nth-child(5),.detail-table td:nth-child(5){width:13%}
-    .detail-table th:nth-child(6),.detail-table td:nth-child(6){width:18%}
+    .detail-table th:nth-child(6),.detail-table td:nth-child(6){width:19%}
     .detail-table th:nth-child(7),.detail-table td:nth-child(7){width:7%}
     .detail-table th:nth-child(8),.detail-table td:nth-child(8){width:7%}
     .detail-table th:nth-child(9),.detail-table td:nth-child(9){width:8%}
-    .detail-seq,.detail-num { text-align:center; white-space:nowrap; }
+    .detail-seq,.detail-num { text-align:center; }
     .detail-money { text-align:right; white-space:nowrap; }
+    @media print { body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
   </style></head><body>${pages}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
 }
 
@@ -685,6 +702,45 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     }
   }
 
+  async function saveSentBatchChanges(rows: StampOrder[]) {
+    const dirtyRows = rows.filter((row) => draftChanged(row, drafts[row.id] ?? orderToDraft(row)));
+    if (!dirtyRows.length) {
+      pushToast({ type: 'info', title: '目前沒有尚未儲存的修改。' });
+      return;
+    }
+    setSavingId('__batch__');
+    try {
+      for (const row of dirtyRows) {
+        const draft = drafts[row.id] ?? orderToDraft(row);
+        const quantity = Number(draft.quantity);
+        const unitPrice = Number(draft.unit_price);
+        if (!draft.stamp_date || !draft.department || !draft.admin_name || !draft.employer_department.trim() || !draft.name_content.trim()) {
+          throw new Error(`「${draft.name_content || row.name_content || '未命名'}」資料不完整，請先補齊日期、部門、行政、雇主與工人姓名 / 內容。`);
+        }
+        if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
+          throw new Error(`「${draft.name_content || row.name_content || '未命名'}」數量或單價格式不正確。`);
+        }
+        await updateStampOrder(row.id, {
+          stamp_date: draft.stamp_date,
+          department: draft.department,
+          admin_name: draft.admin_name,
+          employer_department: draft.employer_department.trim(),
+          name_content: draft.name_content.trim(),
+          stamp_type: draft.stamp_type,
+          spec_note: draft.stamp_type === '木頭章' ? null : (draft.spec_note.trim() || null),
+          quantity,
+          unit_price: unitPrice
+        }, profile);
+      }
+      await reload();
+      pushToast({ type: 'success', title: `已儲存 ${dirtyRows.length} 筆已送刻修改` });
+    } catch (err) {
+      pushToast({ type: 'error', title: '批次儲存失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   async function removeRow(order: StampOrder) {
     if (!window.confirm(`確定刪除「${order.name_content || '此筆印章'}」嗎？`)) return;
     try {
@@ -935,7 +991,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                   <div><span style={{ display: 'block', color: '#7b8494', fontSize: 11 }}>送刻日期</span><b>{formatDate(batch.sent_date)}</b></div>
                   <div><span style={{ display: 'block', color: '#7b8494', fontSize: 11 }}>送刻者</span><b>{batch.sender_name}</b></div>
                   <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}><span>一部 {batch.dept1_count} 顆｜${formatMoney(batch.dept1_amount)}</span><span>二部 {batch.dept2_count} 顆｜${formatMoney(batch.dept2_amount)}</span><strong>總計 {batch.total_count} 顆｜${formatMoney(batch.total_amount)}</strong></div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button type="button" className="secondary-button mini" onClick={() => openLineMessage(makeLineMessage({ senderName: batch.sender_name, senderExtension: batch.sender_extension ?? '', requiredDate: batch.required_date, orders: currentOrderValues(rows) }))}>LINE 訊息</button><button type="button" className="secondary-button mini" onClick={() => printReceipt(rows)}>列印簽收單</button><button type="button" className="secondary-button mini" onClick={() => printClaimForm(rows, batch.sender_name, batch.sent_date)}>列印請款單</button></div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button type="button" className="primary-button mini" disabled={savingId === '__batch__'} onClick={() => saveSentBatchChanges(rows)}>{savingId === '__batch__' ? '儲存中...' : '儲存全部修改'}</button><button type="button" className="secondary-button mini" onClick={() => openLineMessage(makeLineMessage({ senderName: batch.sender_name, senderExtension: batch.sender_extension ?? '', requiredDate: batch.required_date, orders: currentOrderValues(rows) }))}>LINE 訊息</button><button type="button" className="secondary-button mini" onClick={() => printReceipt(rows)}>列印簽收單</button><button type="button" className="secondary-button mini" onClick={() => printClaimForm(rows, batch.sender_name, batch.sent_date)}>列印請款單</button></div>
                 </div>
                 {expanded ? (
                   <div style={{ borderTop: '1px solid #e7ece3', padding: 14, overflowX: 'auto' }}>
@@ -955,7 +1011,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
                           <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.quantity} onChange={(e) => patchDraft(row.id, { quantity: e.target.value.replace(/\D/g, '') })} /></td>
                           <td style={tdStyle}><input style={inputStyle} inputMode="numeric" value={draft.unit_price} onChange={(e) => patchDraft(row.id, { unit_price: e.target.value.replace(/[^\d.]/g, '') })} /></td>
                           <td style={{ ...tdStyle, fontWeight: 900, color: '#27548a', whiteSpace: 'nowrap' }}>${formatMoney(amount)}</td>
-                          <td style={tdStyle}><div style={{ display: 'flex', gap: 6 }}><button type="button" className="secondary-button mini" disabled={savingId === row.id} onClick={() => saveRow(row)}>{savingId === row.id ? '儲存中' : '儲存'}</button><button type="button" className="danger-button mini" onClick={() => removeRow(row)}>刪除</button></div></td>
+                          <td style={tdStyle}><div style={{ display: 'flex', gap: 6 }}><button type="button" className={draftChanged(row, draft) ? 'primary-button mini' : 'secondary-button mini'} disabled={savingId === row.id || !draftChanged(row, draft)} onClick={() => saveRow(row)}>{savingId === row.id ? '儲存中' : (draftChanged(row, draft) ? '儲存修改' : '已儲存')}</button><button type="button" className="danger-button mini" onClick={() => removeRow(row)}>刪除</button></div></td>
                         </tr>;
                       })}</tbody>
                     </table>
