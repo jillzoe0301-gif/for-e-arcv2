@@ -338,10 +338,7 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
 
     return `<section class="a4-page">
       <section class="claim-half">
-        <div class="company-options">
-          <div>□灃康人力資源/ □灃禾管理顧問/ □乾坤國際</div>
-          <div>□豐禾海外貿易 / □全方位培訓協會</div>
-        </div>
+        <div class="claim-header-wrap"><img class="claim-header" src="/claim-header.jpg" alt="灃禾集團" /></div>
         <div class="claim-title">請 款 單</div>
 
         <div class="claim-dept-date">
@@ -360,7 +357,7 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
           <tbody>${detailLines}</tbody>
           <tfoot><tr><td colspan="2" class="payee">領款人簽章</td><td colspan="2" class="total-label">總計</td><td class="claim-money total">${formatMoney(total)}</td></tr></tfoot>
         </table>
-        <div class="sign-row"><span>總經理室：</span><span>單位主管：</span><span>請款人：${escapeHtml(params.requester || '')}</span></div>
+        <div class="sign-row"><span class="requester-sign"><b>請款人：${escapeHtml(params.requester || '')}</b><i class="signature-box"></i></span><span>單位主管：</span><span>總經理室：</span></div>
         <div class="form-code">FW-QR-M043&nbsp;&nbsp;A/1</div>
       </section>
 
@@ -388,9 +385,10 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     .a4-page::before { content:""; position:absolute; left:0; right:0; top:14.85cm; border-top:1px dashed #777; z-index:20; }
     .a4-page::after { content:"A5 裁切線"; position:absolute; right:0.18cm; top:14.85cm; transform:translateY(-50%); background:#fff; padding:0 2px; font-size:6.5pt; color:#777; z-index:21; }
 
-    .claim-half { position:absolute; left:0; top:0; width:21cm; height:14.85cm; padding:0.35cm 0.75cm 0.25cm; overflow:hidden; }
-    .company-options { text-align:center; font-weight:800; font-size:12.5pt; line-height:1.25; min-height:1.15cm; display:flex; flex-direction:column; justify-content:center; }
-    .claim-title { text-align:center; font-weight:900; font-size:17.5pt; letter-spacing:7px; line-height:1.05; margin:0.08cm 0 0.1cm; }
+    .claim-half { position:absolute; left:0; top:0; width:21cm; height:14.85cm; padding:0.22cm 0.75cm 0.25cm; overflow:hidden; }
+    .claim-header-wrap { width:100%; margin:0 0 0.08cm; overflow:hidden; }
+    .claim-header { display:block; width:100%; height:auto; max-height:2.35cm; object-fit:contain; }
+.claim-title { text-align:center; font-weight:900; font-size:17.5pt; letter-spacing:7px; line-height:1.05; margin:0.08cm 0 0.1cm; }
 
     .claim-dept-date { display:grid; grid-template-columns:1.3cm 1fr 3.55cm; min-height:1.45cm; border-bottom:2px solid #111; align-items:stretch; }
     .dept-label { font-size:11.5pt; font-weight:900; line-height:1.15; display:flex; align-items:center; padding-left:0.04cm; }
@@ -409,11 +407,13 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     .payee { text-align:center; font-size:12pt; font-weight:900; }
     .total-label { text-align:center; font-size:12pt; font-weight:900; }
     .total { font-weight:900; }
-
-    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:12.5pt; font-weight:900; margin-top:0.08cm; padding:0 0.02cm; }
-    .sign-row span:nth-child(2) { text-align:center; }
-    .sign-row span:nth-child(3) { text-align:center; }
-    .form-code { text-align:right; font-size:9.5pt; margin-top:0.08cm; padding-right:1.1cm; }
+    .sign-row { display:grid; grid-template-columns:1.55fr 1fr 1fr; gap:0.22cm; align-items:start; font-size:12.5pt; font-weight:900; margin-top:0.12cm; padding:0 0.02cm; }
+    .sign-row > span { min-height:0.9cm; display:flex; align-items:flex-start; }
+    .requester-sign { justify-content:flex-start; gap:0.16cm; text-align:left; }
+    .requester-sign b { white-space:nowrap; font-size:12.5pt; }
+    .signature-box { display:inline-block; width:3.35cm; height:0.82cm; border:1.5px solid #111; background:#fff; flex:0 0 auto; }
+    .sign-row > span:nth-child(2), .sign-row > span:nth-child(3) { justify-content:center; text-align:center; }
+.form-code { text-align:right; font-size:9.5pt; margin-top:0.08cm; padding-right:1.1cm; }
 
     .detail-half { position:absolute; left:0; top:14.85cm; width:21cm; height:14.85cm; padding:0.55cm 0.75cm 0.45cm; overflow:hidden; }
     .detail-title { text-align:center; font-weight:900; font-size:15pt; margin-bottom:0.12cm; }
