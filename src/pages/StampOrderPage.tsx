@@ -302,57 +302,75 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     const total = rows.reduce((sum, row) => sum + orderAmount(row), 0);
     const requestDate = formatDate(params.requestDate || rows[0]?.stamp_date || todayTaipei());
     const unitPrices = Array.from(new Set(rows.map((row) => Number(row.unit_price ?? 0))));
-    const unitPriceText = unitPrices.length === 1 ? `$${formatMoney(unitPrices[0])}` : '詳附件';
+    const unitPriceText = unitPrices.length === 1 ? formatMoney(unitPrices[0]) : '詳附件';
     const itemText = kind === 'wood' ? '工人開戶印章一批詳附件明細' : '特殊印章一批詳附件明細';
 
-    const claimRows = [`<tr>
-      <td class="seq">1</td>
-      <td class="item">${escapeHtml(itemText)}</td>
-      <td class="num">${quantity}</td>
-      <td class="money">${unitPriceText}</td>
-      <td class="money">$${formatMoney(total)}</td>
-    </tr>`];
-    for (let index = 1; index < 4; index += 1) {
-      claimRows.push(`<tr><td class="seq">${index + 1}</td><td></td><td></td><td></td><td></td></tr>`);
-    }
+    const detailLines = Array.from({ length: 6 }, (_, index) => {
+      if (index === 0) {
+        return `<tr>
+          <td class="claim-seq">1</td>
+          <td class="claim-item">${escapeHtml(itemText)}</td>
+          <td class="claim-num">${quantity}</td>
+          <td class="claim-money">${escapeHtml(unitPriceText)}</td>
+          <td class="claim-money">${formatMoney(total)}</td>
+        </tr>`;
+      }
+      return `<tr><td class="claim-seq">${index + 1}</td><td></td><td></td><td></td><td></td></tr>`;
+    }).join('');
 
-    const deptChecks = [
-      ['營管處', false], ['營運處', false], ['營運一', department === '一部'], ['營運二', department === '二部'],
-      ['美·時光', false], ['好·時光診所', false], ['管顧', false], ['人才', false]
-    ].map(([label, checked]) => `${checked ? '☑' : '□'}${label}`).join('　');
+    const checked = (label: string) => {
+      if (label === '營運一') return department === '一部' ? '☑' : '□';
+      if (label === '營運二') return department === '二部' ? '☑' : '□';
+      return '□';
+    };
 
     const detailRows = rows.map((row, index) => `<tr>
-      <td class="detail-seq">${index + 1}</td>
+      <td class="d-seq">${index + 1}</td>
       <td>${escapeHtml(row.admin_name || '')}</td>
       <td>${escapeHtml(row.employer_department || '')}</td>
       <td>${escapeHtml(row.name_content || '')}</td>
       <td>${escapeHtml(row.stamp_type || '')}</td>
       <td>${row.stamp_type === '木頭章' ? '' : escapeHtml(row.spec_note || '')}</td>
-      <td class="detail-num">${Math.max(1, Number(row.quantity ?? 1))}</td>
-      <td class="detail-money">$${formatMoney(Number(row.unit_price ?? 0))}</td>
-      <td class="detail-money">$${formatMoney(orderAmount(row))}</td>
+      <td class="d-num">${Math.max(1, Number(row.quantity ?? 1))}</td>
+      <td class="d-money">$${formatMoney(Number(row.unit_price ?? 0))}</td>
+      <td class="d-money">$${formatMoney(orderAmount(row))}</td>
     </tr>`).join('');
 
     return `<section class="a4-page">
       <section class="claim-half">
-        <div class="company-line">□灃康人力資源 / □灃禾管理顧問 / □乾坤國際　□豐禾海外貿易 / □全方位培訓協會</div>
-        <h1>請 款 單</h1>
-        <div class="claim-meta">
-          <div class="department-block"><strong>請款部門：</strong><div>${deptChecks}</div></div>
-          <div class="claim-date"><strong>日期：</strong>${escapeHtml(requestDate)}</div>
+        <div class="company-options">
+          <div>□灃康人力資源/ □灃禾管理顧問/ □乾坤國際</div>
+          <div>□豐禾海外貿易 / □全方位培訓協會</div>
         </div>
+        <div class="claim-title">請 款 單</div>
+
+        <div class="claim-dept-date">
+          <div class="dept-label">請款<br>部門:</div>
+          <div class="dept-options">
+            <div>□總經理室　□數位行銷　□財務稽核　□業務處　□營運處　□協會</div>
+            <div>□營管處　□營運處　${checked('營運一')}營運一　${checked('營運二')}營運二　□美·時光　□好·時光診所　□管顧　□人才</div>
+          </div>
+          <div class="date-box">日期：<span>${escapeHtml(requestDate)}</span></div>
+        </div>
+
         <table class="claim-table">
-          <thead><tr><th class="seq">序號</th><th>品 名 / 規 格</th><th class="num">數量</th><th class="money">單價</th><th class="money">金額</th></tr></thead>
-          <tbody>${claimRows.join('')}</tbody>
-          <tfoot><tr><td colspan="2" class="payee">領款人簽章</td><td colspan="2" class="total-label">總計</td><td class="money total">$${formatMoney(total)}</td></tr></tfoot>
+          <thead>
+            <tr><th class="claim-seq">序號</th><th>品 名 / 規 格</th><th class="claim-num">數量</th><th class="claim-money">單價</th><th class="claim-money">金額</th></tr>
+          </thead>
+          <tbody>${detailLines}</tbody>
+          <tfoot><tr><td colspan="2" class="payee">領款人簽章</td><td colspan="2" class="total-label">總計</td><td class="claim-money total">${formatMoney(total)}</td></tr></tfoot>
         </table>
         <div class="sign-row"><span>總經理室：</span><span>單位主管：</span><span>請款人：${escapeHtml(params.requester || '')}</span></div>
-        <div class="form-code">FW-QR-M043 A/1</div>
+        <div class="form-code">FW-QR-M043&nbsp;&nbsp;A/1</div>
       </section>
 
       <section class="detail-half">
         <div class="detail-title">附件明細</div>
-        <div class="detail-meta"><span>送刻日期：${escapeHtml(formatDate(rows[0]?.stamp_date || params.requestDate || todayTaipei()))}</span><span>共 ${rows.length} 筆／${quantity} 顆</span><span>總金額：$${formatMoney(total)}</span></div>
+        <div class="detail-meta">
+          <span>送刻日期：${escapeHtml(formatDate(rows[0]?.stamp_date || params.requestDate || todayTaipei()))}</span>
+          <span>${escapeHtml(department)}｜${kind === 'wood' ? '木頭章' : '特殊印章'}</span>
+          <span>總金額：$${formatMoney(total)}</span>
+        </div>
         <table class="detail-table">
           <thead><tr><th>#</th><th>行政</th><th>雇主</th><th>工人 / 內容</th><th>項目</th><th>規格</th><th>數量</th><th>單價</th><th>金額</th></tr></thead>
           <tbody>${detailRows}</tbody>
@@ -364,48 +382,56 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
   return `<!doctype html><html><head><meta charset="utf-8"><title>印章請款單</title><style>
     @page { size:A4 portrait; margin:0; }
     * { box-sizing:border-box; }
-    body { margin:0; font-family:Arial, "Microsoft JhengHei", sans-serif; color:#111; }
-    .a4-page { position:relative; width:21cm; height:29.7cm; page-break-after:always; overflow:hidden; }
+    body { margin:0; font-family:"Microsoft JhengHei", Arial, sans-serif; color:#000; background:#fff; }
+    .a4-page { position:relative; width:21cm; height:29.7cm; page-break-after:always; overflow:hidden; background:#fff; }
     .a4-page:last-child { page-break-after:auto; }
-    .a4-page::before { content:""; position:absolute; left:0; right:0; top:50%; border-top:1px dashed #777; z-index:20; pointer-events:none; }
-    .a4-page::after { content:"A5 裁切線"; position:absolute; top:50%; right:0.25cm; transform:translateY(-50%); background:#fff; padding:0 3px; font-size:6.5pt; color:#777; z-index:21; }
-    .claim-half { position:absolute; left:0; top:0; width:21cm; height:14.85cm; padding:0.8cm 0.8cm 0.35cm; overflow:hidden; }
-    .company-line { text-align:center; font-weight:800; font-size:12pt; line-height:1.2; margin:0 0 3px; white-space:nowrap; }
-    h1 { text-align:center; font-size:18pt; letter-spacing:6px; margin:2px 0 3px; }
-    .claim-meta { display:grid; grid-template-columns:minmax(0,1fr) 3.4cm; border:1px solid #222; border-bottom:0; min-height:1.05cm; }
-    .department-block { display:flex; gap:8px; align-items:center; padding:4px 7px; font-size:8.5pt; line-height:1.45; overflow:hidden; }
-    .department-block strong { font-size:11pt; white-space:nowrap; }
-    .department-block div { white-space:normal; }
-    .claim-date { border-left:1px solid #222; display:flex; align-items:center; justify-content:center; gap:4px; font-size:9.5pt; white-space:nowrap; }
-    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9.5pt; }
-    .claim-table th,.claim-table td { border:1px solid #222; padding:4px 5px; height:0.82cm; vertical-align:middle; }
-    .claim-table th { font-size:10pt; font-weight:900; text-align:center; }
-    .claim-table .seq { width:7%; text-align:center; }
-    .claim-table .item { width:49%; line-height:1.2; }
-    .claim-table .num { width:13%; text-align:center; }
-    .claim-table .money { width:15%; text-align:right; white-space:nowrap; }
-    .claim-table .payee,.claim-table .total-label { text-align:center; font-size:9.5pt; font-weight:800; }
-    .claim-table .total { font-weight:900; font-size:10.5pt; }
-    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-weight:800; font-size:9.5pt; padding:6px 2px 0; }
-    .form-code { text-align:right; font-size:7.5pt; margin-top:2px; }
+    .a4-page::before { content:""; position:absolute; left:0; right:0; top:14.85cm; border-top:1px dashed #777; z-index:20; }
+    .a4-page::after { content:"A5 裁切線"; position:absolute; right:0.18cm; top:14.85cm; transform:translateY(-50%); background:#fff; padding:0 2px; font-size:6.5pt; color:#777; z-index:21; }
 
-    .detail-half { position:absolute; left:0; top:14.85cm; width:21cm; height:14.85cm; padding:0.35cm 0.8cm 0.8cm; overflow:hidden; }
-    .detail-title { text-align:center; font-size:13pt; font-weight:900; letter-spacing:1px; margin-bottom:5px; }
-    .detail-meta { display:flex; justify-content:space-between; gap:10px; font-size:8.5pt; font-weight:800; margin:0 1px 5px; }
-    .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:8pt; }
-    .detail-table th,.detail-table td { border:1px solid #777; padding:3px 3px; height:0.56cm; vertical-align:middle; line-height:1.15; word-break:break-word; }
-    .detail-table th { background:#f3f6ef; font-weight:900; text-align:center; font-size:8.3pt; }
+    .claim-half { position:absolute; left:0; top:0; width:21cm; height:14.85cm; padding:0.35cm 0.75cm 0.25cm; overflow:hidden; }
+    .company-options { text-align:center; font-weight:800; font-size:12.5pt; line-height:1.25; min-height:1.15cm; display:flex; flex-direction:column; justify-content:center; }
+    .claim-title { text-align:center; font-weight:900; font-size:17.5pt; letter-spacing:7px; line-height:1.05; margin:0.08cm 0 0.1cm; }
+
+    .claim-dept-date { display:grid; grid-template-columns:1.3cm 1fr 3.55cm; min-height:1.45cm; border-bottom:2px solid #111; align-items:stretch; }
+    .dept-label { font-size:11.5pt; font-weight:900; line-height:1.15; display:flex; align-items:center; padding-left:0.04cm; }
+    .dept-options { font-size:9.5pt; font-weight:700; line-height:1.55; padding:0.08cm 0.08cm; overflow:hidden; white-space:nowrap; }
+    .date-box { font-size:12pt; font-weight:900; display:flex; justify-content:center; align-items:center; white-space:nowrap; }
+    .date-box span { margin-left:0.12cm; font-size:10.5pt; }
+
+    .claim-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:11.5pt; }
+    .claim-table th, .claim-table td { border:1.35px solid #111; padding:0.04cm 0.08cm; height:0.73cm; vertical-align:middle; }
+    .claim-table th { text-align:center; font-size:12.5pt; font-weight:900; }
+    .claim-seq { width:1.3cm; text-align:right; font-weight:800; }
+    .claim-table th.claim-seq { text-align:center; }
+    .claim-item { text-align:left; font-weight:700; }
+    .claim-num { width:2.4cm; text-align:center; }
+    .claim-money { width:2.25cm; text-align:center; white-space:nowrap; }
+    .payee { text-align:center; font-size:12pt; font-weight:900; }
+    .total-label { text-align:center; font-size:12pt; font-weight:900; }
+    .total { font-weight:900; }
+
+    .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:12.5pt; font-weight:900; margin-top:0.08cm; padding:0 0.02cm; }
+    .sign-row span:nth-child(2) { text-align:center; }
+    .sign-row span:nth-child(3) { text-align:center; }
+    .form-code { text-align:right; font-size:9.5pt; margin-top:0.08cm; padding-right:1.1cm; }
+
+    .detail-half { position:absolute; left:0; top:14.85cm; width:21cm; height:14.85cm; padding:0.55cm 0.75cm 0.45cm; overflow:hidden; }
+    .detail-title { text-align:center; font-weight:900; font-size:15pt; margin-bottom:0.12cm; }
+    .detail-meta { display:flex; justify-content:space-between; gap:0.25cm; font-size:9.5pt; font-weight:700; margin-bottom:0.12cm; }
+    .detail-table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:8.6pt; }
+    .detail-table th,.detail-table td { border:1px solid #333; padding:0.06cm 0.06cm; vertical-align:middle; word-break:break-word; }
+    .detail-table th { background:#f3f3f3; font-weight:900; text-align:center; }
     .detail-table th:nth-child(1),.detail-table td:nth-child(1){width:4%}
-    .detail-table th:nth-child(2),.detail-table td:nth-child(2){width:8%}
-    .detail-table th:nth-child(3),.detail-table td:nth-child(3){width:16%}
+    .detail-table th:nth-child(2),.detail-table td:nth-child(2){width:9%}
+    .detail-table th:nth-child(3),.detail-table td:nth-child(3){width:15%}
     .detail-table th:nth-child(4),.detail-table td:nth-child(4){width:18%}
-    .detail-table th:nth-child(5),.detail-table td:nth-child(5){width:13%}
-    .detail-table th:nth-child(6),.detail-table td:nth-child(6){width:19%}
-    .detail-table th:nth-child(7),.detail-table td:nth-child(7){width:7%}
-    .detail-table th:nth-child(8),.detail-table td:nth-child(8){width:7%}
+    .detail-table th:nth-child(5),.detail-table td:nth-child(5){width:14%}
+    .detail-table th:nth-child(6),.detail-table td:nth-child(6){width:18%}
+    .detail-table th:nth-child(7),.detail-table td:nth-child(7){width:6%}
+    .detail-table th:nth-child(8),.detail-table td:nth-child(8){width:8%}
     .detail-table th:nth-child(9),.detail-table td:nth-child(9){width:8%}
-    .detail-seq,.detail-num { text-align:center; }
-    .detail-money { text-align:right; white-space:nowrap; }
+    .d-seq,.d-num { text-align:center; }
+    .d-money { text-align:right; white-space:nowrap; }
     @media print { body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
   </style></head><body>${pages}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
 }
