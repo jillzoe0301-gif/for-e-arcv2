@@ -410,7 +410,6 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     .claim-item { text-align:left; font-weight:700; }
     .claim-num { width:2.4cm; text-align:center; }
     .claim-money { width:2.25cm; text-align:center; white-space:nowrap; }
-    .payee { text-align:center; font-size:12pt; font-weight:900; }
     .total-label { text-align:center; font-size:12pt; font-weight:900; }
     .total { font-weight:900; }
 .form-code { text-align:right; font-size:9.5pt; margin-top:0.08cm; padding-right:1.1cm; }
@@ -434,7 +433,8 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     .d-money { text-align:right; white-space:nowrap; }
     @media print { body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
 
-    .payee { text-align:left !important; padding-left:0.18cm !important; font-size:12pt; font-weight:900; vertical-align:middle; }
+    .payee { position:relative; text-align:left !important; padding-left:0.18cm !important; padding-right:0.18cm !important; font-size:12pt; font-weight:900; vertical-align:middle; }
+    .payee::after { content:""; position:absolute; top:-1px; bottom:-1px; left:39%; border-left:1.2px solid #111; }
     .sign-row { display:grid; grid-template-columns:1fr 1fr 1fr; width:100%; font-size:12.5pt; font-weight:900; margin-top:0.08cm; padding:0 0.02cm; }
     .sign-row > span { min-height:0.68cm; display:flex; align-items:center; justify-content:flex-start; white-space:nowrap; }
     .sign-row > span:nth-child(2) { justify-content:center; }
