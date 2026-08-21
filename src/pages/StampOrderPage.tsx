@@ -357,13 +357,6 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
           <tbody>${detailLines}</tbody>
           <tfoot><tr><td colspan="2" class="payee">領款人簽章</td><td colspan="2" class="total-label">總計</td><td class="claim-money total">${formatMoney(total)}</td></tr></tfoot>
         </table>
-        
-          <div class="sign-bottom">
-            <span>總經理室：</span>
-            <span>單位主管：</span>
-            <span>請款人：</span>
-          </div>
-        </div>
         <div class="sign-row"><span>總經理室：</span><span>單位主管：</span><span>請款人：${escapeHtml(params.requester || '')}</span></div>
         <div class="form-code">FW-QR-M043&nbsp;&nbsp;A/1</div>
       </section>
