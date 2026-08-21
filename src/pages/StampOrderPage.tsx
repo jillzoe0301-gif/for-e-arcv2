@@ -357,7 +357,17 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
           <tbody>${detailLines}</tbody>
           <tfoot><tr><td colspan="2" class="payee">領款人簽章</td><td colspan="2" class="total-label">總計</td><td class="claim-money total">${formatMoney(total)}</td></tr></tfoot>
         </table>
-        <div class="sign-row"><span class="requester-sign"><b>請款人：${escapeHtml(params.requester || '')}</b><i class="signature-box"></i></span><span>單位主管：</span><span>總經理室：</span></div>
+        <div class="sign-row">
+          <div class="sign-top">
+            <span class="sign-top-label">領款人簽章</span>
+            <span class="sign-top-box"></span>
+          </div>
+          <div class="sign-bottom">
+            <span>總經理室：</span>
+            <span>單位主管：</span>
+            <span>請款人：</span>
+          </div>
+        </div>
         <div class="form-code">FW-QR-M043&nbsp;&nbsp;A/1</div>
       </section>
 
@@ -407,12 +417,6 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     .payee { text-align:center; font-size:12pt; font-weight:900; }
     .total-label { text-align:center; font-size:12pt; font-weight:900; }
     .total { font-weight:900; }
-    .sign-row { display:grid; grid-template-columns:1.55fr 1fr 1fr; gap:0.22cm; align-items:start; font-size:12.5pt; font-weight:900; margin-top:0.12cm; padding:0 0.02cm; }
-    .sign-row > span { min-height:0.9cm; display:flex; align-items:flex-start; }
-    .requester-sign { justify-content:flex-start; gap:0.16cm; text-align:left; }
-    .requester-sign b { white-space:nowrap; font-size:12.5pt; }
-    .signature-box { display:inline-block; width:3.35cm; height:0.82cm; border:1.5px solid #111; background:#fff; flex:0 0 auto; }
-    .sign-row > span:nth-child(2), .sign-row > span:nth-child(3) { justify-content:center; text-align:center; }
 .form-code { text-align:right; font-size:9.5pt; margin-top:0.08cm; padding-right:1.1cm; }
 
     .detail-half { position:absolute; left:0; top:14.85cm; width:21cm; height:14.85cm; padding:0.55cm 0.75cm 0.45cm; overflow:hidden; }
@@ -433,7 +437,15 @@ function claimFormHtml(params: { rows: StampOrder[]; requester: string; requestD
     .d-seq,.d-num { text-align:center; }
     .d-money { text-align:right; white-space:nowrap; }
     @media print { body { print-color-adjust:exact; -webkit-print-color-adjust:exact; } }
-  </style></head><body>${pages}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
+  
+    .sign-row { margin-top:0.10cm; width:100%; }
+    .sign-top { display:grid; grid-template-columns:2.55cm 1fr; width:62%; }
+    .sign-top > span { min-height:0.86cm; display:flex; align-items:center; padding:0.04cm 0.12cm; font-size:12.5pt; font-weight:900; border:1.2px solid #111; box-sizing:border-box; }
+    .sign-top-label { justify-content:center; white-space:nowrap; }
+    .sign-top-box { border-left:none !important; background:#fff; }
+    .sign-bottom { display:grid; grid-template-columns:1fr 1fr 1fr; width:100%; margin-top:0.06cm; }
+    .sign-bottom > span { min-height:0.68cm; display:flex; align-items:center; justify-content:flex-start; padding:0.02cm 0.08cm; font-size:12.5pt; font-weight:900; white-space:nowrap; }
+</style></head><body>${pages}<script>setTimeout(()=>window.print(),250)<\/script></body></html>`;
 }
 
 function escapeHtml(value: string) {
