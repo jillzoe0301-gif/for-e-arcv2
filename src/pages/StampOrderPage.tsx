@@ -457,6 +457,9 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
   const [savingId, setSavingId] = useState<string | null>(null);
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [linePreview, setLinePreview] = useState<string | null>(null);
+  const [singleEmployer, setSingleEmployer] = useState('');
+  const [singleWorker, setSingleWorker] = useState('');
+  const [addingSingle, setAddingSingle] = useState(false);
 
   const pendingOrders = useMemo(() => data.stampOrders
     .filter((order) => !order.deleted_at && order.status === 'pending')
@@ -467,9 +470,15 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     .sort((a, b) => `${b.sent_date}${b.batch_no}`.localeCompare(`${a.sent_date}${a.batch_no}`)), [data.stampBatches]);
 
   useEffect(() => {
-    const next: Record<string, Draft> = {};
-    data.stampOrders.filter((order) => !order.deleted_at).forEach((order) => { next[order.id] = orderToDraft(order); });
-    setDrafts(next);
+    setDrafts((current) => {
+      const next: Record<string, Draft> = {};
+      data.stampOrders.filter((order) => !order.deleted_at).forEach((order) => {
+        const currentDraft = current[order.id];
+        // 如果畫面上有尚未儲存的修改，資料重新載入時保留使用者正在編輯的值。
+        next[order.id] = currentDraft && draftChanged(order, currentDraft) ? currentDraft : orderToDraft(order);
+      });
+      return next;
+    });
   }, [data.stampOrders]);
 
   const adminOptions = useMemo(() => data.people.filter((person) => person.is_enabled && person.show_as_admin), [data.people]);
@@ -521,7 +530,16 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     const lines = text.replace(/\r/g, '').split('\n').map((line) => line.trimEnd()).filter((line) => line.trim());
     if (!lines.length) return [];
 
-    const rows = lines.map((line) => line.split('\t').map((cell) => cell.trim()));
+    const rows = lines.map((line) => {
+      let cells = line.split('\t');
+      if (cells.length === 1) cells = line.split(/[,，|]/);
+      if (cells.length === 1) cells = line.trim().split(/\s{2,}/);
+      if (cells.length === 1) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length === 2) cells = parts;
+      }
+      return cells.map((cell) => cell.trim());
+    });
     const normalizedHeader = (value: string) => value.replace(/\s+/g, '').replace(/[／/]/g, '/').toLowerCase();
     const headerAliases: Record<string, keyof Draft> = {
       '送刻日期': 'stamp_date',
@@ -670,6 +688,37 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
       pushToast({ type: 'error', title: '批次新增失敗', message: err instanceof Error ? err.message : '批次新增失敗，請檢查貼上資料內容。' });
     } finally {
       setImportingPaste(false);
+    }
+  }
+
+  async function addSingleQuick() {
+    const employer = singleEmployer.trim();
+    const worker = singleWorker.trim();
+    if (!employer || !worker) {
+      pushToast({ type: 'warning', title: '請輸入雇主與工人姓名 / 內容。' });
+      return;
+    }
+    setAddingSingle(true);
+    try {
+      await createStampOrder({
+        stamp_date: todayTaipei(),
+        department: loginDepartment,
+        admin_name: loginAdminName,
+        employer_department: employer,
+        name_content: worker,
+        stamp_type: '木頭章',
+        spec_note: '',
+        quantity: 1,
+        unit_price: 40
+      }, profile);
+      setSingleEmployer('');
+      setSingleWorker('');
+      await reload();
+      pushToast({ type: 'success', title: '已新增 1 顆印章資料' });
+    } catch (err) {
+      pushToast({ type: 'error', title: '新增失敗', message: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setAddingSingle(false);
     }
   }
 
@@ -947,9 +996,18 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
 
             <div className="subtle-text" style={{ marginBottom: 10 }}>自動帶入：林莞、奕君、佩珊＝二部；嘉陽、詩涵、晏婷＝一部；若儀的部門請手動選擇。日期預設為今天，所有欄位新增後皆可自行修改或刪除。</div>
 
+            <div style={{ border: '1px solid #dce5d4', borderRadius: 14, padding: 12, marginBottom: 12, background: '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'end', gap: 10, flexWrap: 'wrap' }}>
+                <label style={{ flex: '1 1 260px' }}><span>雇主</span><input style={{ ...inputStyle, width: '100%' }} value={singleEmployer} onChange={(e) => setSingleEmployer(e.target.value)} placeholder="輸入雇主名稱" /></label>
+                <label style={{ flex: '1 1 260px' }}><span>工人姓名 / 內容</span><input style={{ ...inputStyle, width: '100%' }} value={singleWorker} onChange={(e) => setSingleWorker(e.target.value)} placeholder="輸入工人姓名或刻印內容" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addSingleQuick(); } }} /></label>
+                <button type="button" className="primary-button" disabled={addingSingle} onClick={addSingleQuick}>{addingSingle ? '新增中...' : '單顆新增'}</button>
+              </div>
+              <div className="subtle-text" style={{ marginTop: 7 }}>單顆新增會自動帶入今天日期、登入行政與對應部門，預設木頭章 1 顆 / $40；新增後仍可在下方逐欄調整。</div>
+            </div>
+
             <div style={{ border: '1px solid #dce5d4', borderRadius: 14, padding: 12, marginBottom: 14, background: '#fafcf8' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                <div><strong style={{ color: '#315985' }}>整批複製貼上</strong><div className="subtle-text">貼上什麼就先帶入什麼，不再因缺少其他欄位擋住。只貼 1 欄＝姓名／內容；2 欄＝雇主｜姓名／內容；若貼上含標題的多欄資料，會依標題自動對應。沒貼到的欄位才使用系統預設值，新增後可逐筆手動修改。</div></div>
+                <div><strong style={{ color: '#315985' }}>整批複製貼上</strong><div className="subtle-text">貼上什麼就帶入什麼。1 欄＝姓名／內容；2 欄固定＝雇主｜姓名／內容。可用 Excel Tab、逗號或空白分欄；含標題時會依標題對應。新增後所有欄位仍可逐筆修改並儲存。</div></div>
                 <button type="button" className="primary-button" disabled={importingPaste} onClick={importPasteRows}>{importingPaste ? '新增中...' : '批次新增'}</button>
               </div>
               <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={6} placeholder={'雇主\t工人姓名 / 內容\n宏電\t阿沙里\n美德耐\t黃美奈秀'} style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
