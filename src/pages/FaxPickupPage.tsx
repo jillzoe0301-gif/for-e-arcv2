@@ -393,6 +393,21 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     }
   }
 
+  function caseWithFaxPlan(foundCase: ArcCase, plan: FaxPickupItem | undefined): ArcCase {
+    if (!plan) return foundCase;
+    return {
+      ...foundCase,
+      receipt_no: plan.receipt_no ?? foundCase.receipt_no,
+      foreign_no_last5: plan.foreign_no_last5 ?? foundCase.foreign_no_last5,
+      receipt_order: plan.receipt_order ?? foundCase.receipt_order,
+      copy_count: plan.copy_count ?? foundCase.copy_count ?? 1,
+      old_card_checked: plan.old_card_checked ?? foundCase.old_card_checked,
+      handler_last4: plan.handler_last4 ?? foundCase.handler_last4,
+      fax_date: plan.fax_date ?? foundCase.fax_date,
+      expected_pickup_date: plan.expected_pickup_date ?? foundCase.expected_pickup_date
+    };
+  }
+
   function printableRows(): PrintRow[] {
     const rows: PrintRow[] = [];
     plannedItems
@@ -400,7 +415,7 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
       .forEach((plan) => {
         const foundCase = data.cases.find((item) => item.id === plan.case_id);
         if (!foundCase) return;
-        const caseRow: ArcCase = { ...foundCase, copy_count: plan.copy_count ?? foundCase.copy_count ?? 1 };
+        const caseRow = caseWithFaxPlan(foundCase, plan);
         rows.push({
           caseRow,
           appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id),
@@ -490,8 +505,16 @@ export function FaxPickupPage({ data, profile, reload }: { data: ArcData; profil
     data.pickupRecordItems
       .filter((item) => item.record_id === record.id)
       .forEach((recordItem) => {
-        const caseRow = data.cases.find((caseEntry) => caseEntry.id === recordItem.case_id);
-        if (!caseRow) return;
+        const foundCase = data.cases.find((caseEntry) => caseEntry.id === recordItem.case_id);
+        if (!foundCase) return;
+        const matchingPlans = data.faxPickupItems
+          .filter((item) =>
+            item.case_id === recordItem.case_id &&
+            !item.deleted_at &&
+            normalizePickupDateValue(item.expected_pickup_date) === normalizePickupDateValue(record.pickup_date)
+          )
+          .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+        const caseRow = caseWithFaxPlan(foundCase, matchingPlans[0]);
         rows.push({
           caseRow,
           appItem: data.applicationItems.find((item) => item.id === caseRow.application_item_id),
