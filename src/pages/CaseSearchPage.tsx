@@ -1,4 +1,4 @@
-import { CSSProperties, useMemo, useState } from 'react';
+import { CSSProperties, Fragment, useMemo, useState } from 'react';
 import { deleteArcCase, updateCaseFromCaseSearch } from '../api/repository';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
@@ -72,25 +72,73 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
   const { pushToast } = useToast();
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState<CaseStatus | ''>('');
+  const [handlerFilter, setHandlerFilter] = useState('');
+  const [sortByEmployer, setSortByEmployer] = useState(false);
   const [editingCase, setEditingCase] = useState<ArcCase | null>(null);
   const [editForm, setEditForm] = useState<CaseEditForm | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const rows = useMemo(() => data.cases
-    .filter((caseRow) => !status || caseRow.status === status)
-    .filter((caseRow) => rowMatchesKeyword(keyword, [
-      caseRow.case_no,
-      caseRow.employer_name,
-      caseRow.worker_name,
-      caseRow.group_no,
-      data.applicationItems.find((item) => item.id === caseRow.application_item_id)?.name,
-      caseRow.receipt_no,
-      caseRow.foreign_no_last5,
-      caseRow.handler_last4,
-      caseRow.copy_count,
-      paymentHandlerName(caseRow),
-      caseRow.old_card_checked ? '舊卡' : ''
-    ])), [data.applicationItems, data.cases, keyword, status]);
+  const latestFaxPlanByCaseId = useMemo(() => {
+    const map = new Map<string, (typeof data.faxPickupItems)[number]>();
+    (data.faxPickupItems ?? [])
+      .filter((item) => !item.deleted_at)
+      .forEach((item) => {
+        const current = map.get(item.case_id);
+        const currentKey = current ? `${current.expected_pickup_date ?? ''}|${current.created_at ?? ''}` : '';
+        const nextKey = `${item.expected_pickup_date ?? ''}|${item.created_at ?? ''}`;
+        if (!current || nextKey >= currentKey) map.set(item.case_id, item);
+      });
+    return map;
+  }, [data.faxPickupItems]);
+
+  const handlerOptions = useMemo(() => Array.from(new Set(
+    data.cases
+      .map((row) => String(row.handler_name ?? '').trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b, 'zh-Hant')), [data.cases]);
+
+  const rows = useMemo(() => {
+    const filtered = data.cases
+      .filter((caseRow) => !status || caseRow.status === status)
+      .filter((caseRow) => !handlerFilter || String(caseRow.handler_name ?? '').trim() === handlerFilter)
+      .filter((caseRow) => {
+        const faxPlan = latestFaxPlanByCaseId.get(caseRow.id);
+        return rowMatchesKeyword(keyword, [
+          caseRow.case_no,
+          caseRow.employer_name,
+          caseRow.worker_name,
+          caseRow.group_no,
+          data.applicationItems.find((item) => item.id === caseRow.application_item_id)?.name,
+          caseRow.receipt_no,
+          faxPlan?.receipt_no,
+          caseRow.foreign_no_last5,
+          faxPlan?.foreign_no_last5,
+          caseRow.handler_last4,
+          faxPlan?.handler_last4,
+          caseRow.copy_count,
+          caseRow.handler_name,
+          paymentHandlerName(caseRow),
+          caseRow.note,
+          caseRow.old_card_checked ? '舊卡' : ''
+        ]);
+      });
+
+    if (!sortByEmployer) return filtered;
+    return [...filtered].sort((a, b) =>
+      String(a.employer_name ?? '').localeCompare(String(b.employer_name ?? ''), 'zh-Hant', { numeric: true }) ||
+      String(a.application_date ?? '').localeCompare(String(b.application_date ?? '')) ||
+      String(a.worker_name ?? '').localeCompare(String(b.worker_name ?? ''), 'zh-Hant', { numeric: true })
+    );
+  }, [data.applicationItems, data.cases, handlerFilter, keyword, latestFaxPlanByCaseId, sortByEmployer, status]);
+
+  const employerCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    rows.forEach((row) => {
+      const employer = String(row.employer_name ?? '').trim() || '未填雇主';
+      counts.set(employer, (counts.get(employer) ?? 0) + 1);
+    });
+    return counts;
+  }, [rows]);
 
 
   async function remove(row: ArcCase) {
@@ -355,6 +403,39 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
           <SearchInput id="caseSearchInput" value={keyword} onCommit={setKeyword} placeholder="案件編號 / 雇主 / 工人 / 團號 / 申請項目 / 收件編號 / 外字五碼 / 送件承辦 / 繳費承辦" />
           <label className="inline-field"><span>狀態</span><select value={status} onChange={(e) => setStatus(e.target.value as CaseStatus | '')}><option value="">全部狀態</option>{Object.entries(caseStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '-2px 0 14px' }}>
+          <button
+            type="button"
+            className={sortByEmployer ? 'primary-button mini' : 'secondary-button mini'}
+            onClick={() => setSortByEmployer((current) => !current)}
+          >
+            {sortByEmployer ? '✓ 依雇主排序' : '依雇主排序'}
+          </button>
+          <span style={{ color: '#7b8494', fontSize: 12, fontWeight: 800, marginLeft: 4 }}>送件承辦</span>
+          <button
+            type="button"
+            className={!handlerFilter ? 'primary-button mini' : 'secondary-button mini'}
+            onClick={() => setHandlerFilter('')}
+          >
+            全部
+          </button>
+          {handlerOptions.map((handler) => (
+            <button
+              key={handler}
+              type="button"
+              className={handlerFilter === handler ? 'primary-button mini' : 'secondary-button mini'}
+              onClick={() => setHandlerFilter(handler)}
+            >
+              {handler}
+            </button>
+          ))}
+          {(keyword || status || handlerFilter) ? (
+            <span style={{ marginLeft: 'auto', color: '#738098', fontSize: 12, fontWeight: 700 }}>
+              共 {rows.length} 筆
+            </span>
+          ) : null}
+        </div>
         <div className="search-result-area" style={{ width: '100%', overflowX: 'hidden' }}>
           <div className="table-wrap" style={{ width: '100%', overflow: 'hidden' }}>
             <table className="data-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: 13 }}>
@@ -373,15 +454,41 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
                 <tr>{columns.map((column) => <th key={column.key} style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>{column.title}</th>)}</tr>
               </thead>
               <tbody>
-                {rows.length ? rows.map((row) => (
-                  <tr key={row.id}>
-                    {columns.map((column) => (
-                      <td key={column.key} style={{ padding: '12px 8px', verticalAlign: 'top', overflow: 'hidden' }}>
-                        {column.render(row)}
-                      </td>
-                    ))}
-                  </tr>
-                )) : <tr><td colSpan={columns.length} style={{ padding: 28, textAlign: 'center', color: '#7b8494' }}>查無案件資料</td></tr>}
+                {rows.length ? rows.map((row, index) => {
+                  const employer = String(row.employer_name ?? '').trim() || '未填雇主';
+                  const previousEmployer = index > 0 ? (String(rows[index - 1].employer_name ?? '').trim() || '未填雇主') : '';
+                  const showEmployerHeader = sortByEmployer && employer !== previousEmployer;
+                  return (
+                    <Fragment key={row.id}>
+                      {showEmployerHeader ? (
+                        <tr>
+                          <td
+                            colSpan={columns.length}
+                            style={{
+                              padding: '9px 12px',
+                              background: '#f3f7ef',
+                              borderTop: index === 0 ? '0' : '2px solid #dce5d4',
+                              borderBottom: '1px solid #dce5d4',
+                              color: '#315985'
+                            }}
+                          >
+                            <strong style={{ fontSize: 14 }}>{employer}</strong>
+                            <span style={{ marginLeft: 8, color: '#7b8494', fontSize: 12, fontWeight: 700 }}>
+                              {employerCounts.get(employer) ?? 0} 件
+                            </span>
+                          </td>
+                        </tr>
+                      ) : null}
+                      <tr>
+                        {columns.map((column) => (
+                          <td key={column.key} style={{ padding: '12px 8px', verticalAlign: 'top', overflow: 'hidden' }}>
+                            {column.render(row)}
+                          </td>
+                        ))}
+                      </tr>
+                    </Fragment>
+                  );
+                }) : <tr><td colSpan={columns.length} style={{ padding: 28, textAlign: 'center', color: '#7b8494' }}>查無案件資料</td></tr>}
               </tbody>
             </table>
           </div>
