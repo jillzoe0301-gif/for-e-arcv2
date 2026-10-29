@@ -25,6 +25,7 @@ import type {
 } from '../types';
 import { nextAvailablePickupDay, todayTaipei } from '../utils/date';
 import { sortBrokers, sortPeople } from '../utils/sort';
+import { staffFullName } from '../utils/personNames';
 
 export const emptyArcData: ArcData = {
   profiles: [],
@@ -113,27 +114,27 @@ export async function loadArcData(): Promise<ArcData> {
     selectOptional<AnnouncementItem>('announcement_items', 'created_at', false)
   ]);
   return {
-    profiles: profiles.filter((item) => !item.deleted_at),
-    people: sortPeople(people),
+    profiles: profiles.filter((item) => !item.deleted_at).map((item) => ({ ...item, display_name: staffFullName(item.display_name) })),
+    people: sortPeople(people.map((item) => ({ ...item, name: staffFullName(item.name), display_name: staffFullName(item.display_name) }))),
     brokers: sortBrokers(brokers),
     accounts,
     applicationItems,
     feeSettings,
-    cases,
-    stampOrders,
-    stampBatches,
-    batches,
+    cases: cases.map((item) => ({ ...item, handler_name: staffFullName(item.handler_name) })),
+    stampOrders: stampOrders.map((item) => ({ ...item, admin_name: staffFullName(item.admin_name) })),
+    stampBatches: stampBatches.map((item) => ({ ...item, sender_name: staffFullName(item.sender_name) })),
+    batches: batches.map((item) => ({ ...item, payer_name: staffFullName(item.payer_name) })),
     batchItems,
     accountTransactions,
     faxPickupItems,
-    pickupRecords,
+    pickupRecords: pickupRecords.map((item) => ({ ...item, created_by_name: staffFullName(item.created_by_name) })),
     pickupRecordItems,
-    auditLogs,
-    deletedRecords,
+    auditLogs: auditLogs.map((item) => ({ ...item, actor_name: staffFullName(item.actor_name) })),
+    deletedRecords: deletedRecords.map((item) => ({ ...item, deleted_by_name: staffFullName(item.deleted_by_name) })),
     serviceStations,
     taskForces,
     settings: (settings as { is_enabled?: boolean }[]).filter((item) => item.is_enabled !== false) as never,
-    announcements: announcements as AnnouncementItem[]
+    announcements: announcements.map((item) => ({ ...item, created_by_name: staffFullName(item.created_by_name), updated_by_name: staffFullName(item.updated_by_name) }))
   };
 }
 
@@ -2217,3 +2218,4 @@ export async function createStampBatch(
   });
   return normalized as StampBatch;
 }
+

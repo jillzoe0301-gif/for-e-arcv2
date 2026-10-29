@@ -12,6 +12,7 @@ import { useToast } from '../context/ToastContext';
 import type { ArcData, Profile, StampBatch, StampOrder } from '../types';
 import { formatDate, parseDateLoose, todayTaipei } from '../utils/date';
 import { formatMoney } from '../utils/number';
+import { staffFullName } from '../utils/personNames';
 
 const STAMP_TYPES = [
   '木頭章',
@@ -23,31 +24,31 @@ const STAMP_TYPES = [
 const DEPARTMENTS = ['一部', '二部'] as const;
 
 const SENDER_OPTIONS = [
-  { name: '嘉陽', extension: '113' },
-  { name: '佩珊', extension: '117' },
-  { name: '詩涵', extension: '175' },
-  { name: '奕君', extension: '111' },
-  { name: '晏婷', extension: '119' },
+  { name: '徐嘉陽', extension: '113' },
+  { name: '蔡佩珊', extension: '117' },
+  { name: '劉詩涵', extension: '175' },
+  { name: '郭奕君', extension: '111' },
+  { name: '胡晏婷', extension: '119' },
   { name: '林莞', extension: '114' },
-  { name: '若儀', extension: '184' }
+  { name: '蘇若儀', extension: '184' }
 ] as const;
 
 const ADMIN_DEPARTMENT_MAP: Record<string, string> = {
   '林莞': '二部',
-  '奕君': '二部',
-  '佩珊': '二部',
-  '嘉陽': '一部',
-  '詩涵': '一部',
-  '晏婷': '一部'
+  '郭奕君': '二部',
+  '蔡佩珊': '二部',
+  '徐嘉陽': '一部',
+  '劉詩涵': '一部',
+  '胡晏婷': '一部'
 };
 
 function profileAdminName(displayName?: string | null) {
-  const text = String(displayName ?? '');
-  return [...Object.keys(ADMIN_DEPARTMENT_MAP), '若儀'].find((name) => text.includes(name)) ?? '';
+  const text = staffFullName(displayName);
+  return [...Object.keys(ADMIN_DEPARTMENT_MAP), '蘇若儀'].find((name) => text.includes(name)) ?? '';
 }
 
 function defaultDepartmentForAdmin(adminName: string) {
-  return ADMIN_DEPARTMENT_MAP[adminName] ?? '';
+  return ADMIN_DEPARTMENT_MAP[staffFullName(adminName)] ?? '';
 }
 
 type Draft = {
@@ -994,7 +995,7 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
               <label><span>分機</span><input style={inputStyle} value={senderExtension} readOnly placeholder="自動帶入" /></label>
             </div>
 
-            <div className="subtle-text" style={{ marginBottom: 10 }}>自動帶入：林莞、奕君、佩珊＝二部；嘉陽、詩涵、晏婷＝一部；若儀的部門請手動選擇。日期預設為今天，所有欄位新增後皆可自行修改或刪除。</div>
+            <div className="subtle-text" style={{ marginBottom: 10 }}>自動帶入：林莞、郭奕君、蔡佩珊＝二部；徐嘉陽、劉詩涵、胡晏婷＝一部；蘇若儀的部門請手動選擇。日期預設為今天，所有欄位新增後皆可自行修改或刪除。</div>
 
             <div style={{ border: '1px solid #dce5d4', borderRadius: 14, padding: 12, marginBottom: 12, background: '#fff' }}>
               <div style={{ display: 'flex', alignItems: 'end', gap: 10, flexWrap: 'wrap' }}>
@@ -1123,3 +1124,4 @@ export function StampOrderPage({ data, profile, reload }: { data: ArcData; profi
     </div>
   );
 }
+

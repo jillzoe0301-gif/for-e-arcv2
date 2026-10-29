@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import type { Session, User } from '@supabase/supabase-js';
 import { clearRememberLogin, hasSupabaseEnv, setRememberLogin, supabase } from '../lib/supabase';
 import type { Profile } from '../types';
+import { staffFullName } from '../utils/personNames';
 
 interface AuthContextValue {
   user: User | null;
@@ -29,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     if (error) throw error;
-    setProfile(data as Profile | null);
+    setProfile(data ? { ...data, display_name: staffFullName(data.display_name) } as Profile : null);
   }, []);
 
   const reloadProfile = useCallback(async () => {
@@ -81,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await supabase.from('audit_logs').insert({
         action_type: '登入',
         actor_id: data.user.id,
-        actor_name: profileRow.display_name ?? displayName,
+        actor_name: staffFullName(profileRow.display_name ?? displayName),
         page_name: '登入',
         new_data: { email }
       });
@@ -143,3 +144,4 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
   return ctx;
 }
+

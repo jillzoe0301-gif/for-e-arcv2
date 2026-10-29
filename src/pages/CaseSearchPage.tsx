@@ -10,6 +10,7 @@ import { formatDate, parseDateLoose } from '../utils/date';
 import { formatMoney, parseMoney } from '../utils/number';
 import { canDeleteData } from '../utils/permissions';
 import { rowMatchesKeyword } from '../utils/search';
+import { staffSearchNames } from '../utils/personNames';
 import { caseStatusLabels } from '../utils/status';
 
 type CaseEditForm = {
@@ -116,8 +117,8 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
           caseRow.handler_last4,
           faxPlan?.handler_last4,
           caseRow.copy_count,
-          caseRow.handler_name,
-          paymentHandlerName(caseRow),
+          ...staffSearchNames(caseRow.handler_name),
+          ...staffSearchNames(paymentHandlerName(caseRow)),
           caseRow.note,
           caseRow.old_card_checked ? '舊卡' : ''
         ]);
@@ -129,7 +130,7 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
       String(a.application_date ?? '').localeCompare(String(b.application_date ?? '')) ||
       String(a.worker_name ?? '').localeCompare(String(b.worker_name ?? ''), 'zh-Hant', { numeric: true })
     );
-  }, [data.applicationItems, data.cases, handlerFilter, keyword, latestFaxPlanByCaseId, sortByEmployer, status]);
+  }, [data.applicationItems, data.batches, data.cases, handlerFilter, keyword, latestFaxPlanByCaseId, sortByEmployer, status]);
 
   const employerCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -522,3 +523,4 @@ export function CaseSearchPage({ data, profile, reload }: { data: ArcData; profi
     </div>
   );
 }
+

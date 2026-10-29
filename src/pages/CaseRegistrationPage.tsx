@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext';
 import type { ArcData, BatchCaseRow, Profile, RegisterCaseInput } from '../types';
 import { todayTaipei, parseDateLoose } from '../utils/date';
 import { parseMoney } from '../utils/number';
+import { staffFullName } from '../utils/personNames';
 
 const DATE_ERROR = '申請日期格式不正確，請重新輸入。';
 const ENTRY_DATE_ERROR = '入境日格式不正確，請重新輸入。';
@@ -156,7 +157,7 @@ export function CaseRegistrationPage({
       return matched?.id ?? clean;
     }
     if (key === 'handler_name') {
-      const matched = data.people.find((item) => item.name === clean || item.display_name === clean);
+      const matched = data.people.find((item) => item.name === staffFullName(clean) || item.display_name === staffFullName(clean));
       return matched?.name ?? clean;
     }
     if (key === 'entry_date' || key === 'application_date') {
@@ -583,3 +584,4 @@ export function CaseRegistrationPage({
     </div>
   );
 }
+
