@@ -1,3 +1,3 @@
-export const APP_VERSION = 'ARC V13.51.8.39';
-export const APP_UPDATED_AT = '2026-10-06';
-export const APP_UPDATE_NOTE = 'V51.8.39：修正傳真領件續號後列印收據順序讀到案件主檔舊值，改為優先使用該次 fax_pickup_items 資料。';
+export const APP_VERSION = 'ARC V13.51.8.42';
+export const APP_UPDATED_AT = '2026-10-29';
+export const APP_UPDATE_NOTE = 'V51.8.42：修正案件查詢多欄位搜尋，加入依雇主排序分組與送件承辦快速篩選。';
