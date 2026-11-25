@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState, type ReactNode } from 'react';
 import { softDelete, toggleSettingEnabled, updateProfileStatus, upsertSettingTable } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
+import { NewBankAccountModal } from '../components/NewBankAccountModal';
 import { PageHeader } from '../components/PageHeader';
 import { SearchInput } from '../components/SearchInput';
 import { useToast } from '../context/ToastContext';
@@ -298,6 +299,7 @@ function BrokerSettings({ data, profile, reload }: { data: ArcData; profile: Pro
 function BankAccountSettings({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
   const [editing, setEditing] = useState<Partial<BankAccount> | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
   async function save() {
     if (!editing?.account_name || !editing.broker_id || !editing.account_no) return pushToast({ type: 'warning', title: '請輸入帳戶資料' });
     if (editing.is_default && editing.broker_id) {
@@ -308,7 +310,7 @@ function BankAccountSettings({ data, profile, reload }: { data: ArcData; profile
     setEditing(null);
     await reload();
   }
-  return <CrudCard title="帳戶設定" onNew={() => setEditing({ account_name: '', broker_id: data.brokers[0]?.id, bank_code: '', bank_name: '', account_no: '', initial_balance: 0, current_balance: 0, is_enabled: true, is_default: false })}>
+  return <CrudCard title="帳戶設定" onNew={() => setShowCreate(true)}>
     <DataTable columns={[
       { key: 'name', title: '帳戶名稱', render: (row: BankAccount) => row.account_name },
       { key: 'broker', title: '所屬仲介', render: (row: BankAccount) => data.brokers.find((item) => item.id === row.broker_id)?.name ?? '' },
@@ -318,6 +320,7 @@ function BankAccountSettings({ data, profile, reload }: { data: ArcData; profile
       { key: 'enabled', title: '啟用', render: (row: BankAccount) => row.is_enabled ? '是' : '否' },
       { key: 'action', title: '操作', render: (row: BankAccount) => <SettingActions row={row} table="bank_accounts" pageName="帳戶設定" profile={profile} reload={reload} onEdit={() => setEditing(row)} /> }
     ]} rows={data.accounts} rowKey={(row) => row.id} />
+    {showCreate ? <NewBankAccountModal brokers={data.brokers} profile={profile} reload={reload} onClose={() => setShowCreate(false)} /> : null}
     {editing ? <Modal title="帳戶設定" onClose={() => setEditing(null)}><div className="form-grid two-col"><label><span>所屬仲介</span><select value={editing.broker_id ?? ''} onChange={(e) => setEditing({ ...editing, broker_id: e.target.value })}>{data.brokers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><TextField label="帳戶名稱" value={editing.account_name} onChange={(v) => setEditing({ ...editing, account_name: v })} /><TextField label="銀行代碼" value={editing.bank_code} onChange={(v) => setEditing({ ...editing, bank_code: v })} /><TextField label="銀行名稱" value={editing.bank_name} onChange={(v) => setEditing({ ...editing, bank_name: v })} /><TextField label="帳號" value={editing.account_no} onChange={(v) => setEditing({ ...editing, account_no: v })} /><TextField label="初始餘額" value={String(editing.initial_balance ?? 0)} onChange={(v) => { const amount = parseMoney(v) ?? 0; setEditing({ ...editing, initial_balance: amount, current_balance: editing.id ? editing.current_balance : amount }); }} /><BoolField label="是否啟用" checked={editing.is_enabled ?? true} onChange={(v) => setEditing({ ...editing, is_enabled: v })} /><BoolField label="預設扣款帳戶" checked={editing.is_default ?? false} onChange={(v) => setEditing({ ...editing, is_default: v })} /></div><div className="form-actions"><button className="primary-button" onClick={save}>儲存</button></div></Modal> : null}
   </CrudCard>;
 }

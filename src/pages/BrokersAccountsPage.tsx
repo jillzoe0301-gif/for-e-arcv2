@@ -2,17 +2,19 @@ import { useState } from 'react';
 import { adjustAccountBalance } from '../api/repository';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
+import { NewBankAccountModal } from '../components/NewBankAccountModal';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../context/ToastContext';
 import type { ArcData, BankAccount, Profile } from '../types';
 import { formatMoney, parseMoney } from '../utils/number';
-import { canAdjustBalance } from '../utils/permissions';
+import { canAdjustBalance, canCreateBankAccount } from '../utils/permissions';
 
 export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
   const [target, setTarget] = useState<BankAccount | null>(null);
   const [nextBalance, setNextBalance] = useState('');
   const [reason, setReason] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
 
   function open(account: BankAccount) {
     setTarget(account);
@@ -58,8 +60,8 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
         ]} rows={data.brokers} rowKey={(row) => row.id} />
       </section>
       <section className="card full-width-card">
-        <h2>扣款帳號 / 餘額</h2>
-        <p className="subtle-text">會計角色可查看仲介、扣款帳號與餘額；不可直接手動調整帳戶餘額或刪除帳戶。</p>
+        <div className="toolbar-row"><h2>扣款帳號 / 餘額</h2>{canCreateBankAccount(profile?.role) ? <button type="button" className="primary-button" onClick={() => setShowCreate(true)}>＋ 新增扣款帳號</button> : null}</div>
+        <p className="subtle-text">各扣款帳號分別管理餘額，新增後可於繳費及財務對帳選用。</p>
         <DataTable columns={[
           { key: 'broker', title: '所屬仲介', render: (row: BankAccount) => data.brokers.find((item) => item.id === row.broker_id)?.name ?? '' },
           { key: 'account', title: '帳戶名稱', render: (row: BankAccount) => row.account_name },
@@ -72,6 +74,7 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
           { key: 'action', title: '操作', render: (row: BankAccount) => canAdjustBalance(profile?.role) ? <button className="secondary-button mini" onClick={() => open(row)}>調整餘額</button> : <span className="subtle-text">僅可查看</span> }
         ]} rows={data.accounts} rowKey={(row) => row.id} />
       </section>
+      {showCreate ? <NewBankAccountModal brokers={data.brokers} profile={profile} reload={reload} onClose={() => setShowCreate(false)} /> : null}
       {target ? (
         <Modal title="調整帳戶餘額" onClose={() => setTarget(null)}>
           <p>{target.account_name}</p>
