@@ -66,6 +66,10 @@ export function canCreateBankAccount(role: Role | undefined): boolean {
   return role === 'admin' || role === 'finance' || role === 'staff';
 }
 
+export function canEditBankAccount(role: Role | undefined): boolean {
+  return role === 'admin' || role === 'finance' || role === 'staff';
+}
+
 export function canAdjustFinanceConfirmBalance(role: Role | undefined): boolean {
   return role === 'admin' || role === 'finance' || role === 'staff';
 }

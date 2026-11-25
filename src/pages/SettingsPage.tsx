@@ -1,6 +1,8 @@
-import { FormEvent, useMemo, useState, type ReactNode } from 'react';
+import { FormEvent, useMemo, useRef, useState, type ReactNode } from 'react';
+import { normalizeBankAccountDetails } from '../api/bankAccounts';
 import { softDelete, toggleSettingEnabled, updateProfileStatus, upsertSettingTable } from '../api/repository';
 import { DataTable } from '../components/DataTable';
+import { EditBankAccountModal } from '../components/EditBankAccountModal';
 import { Modal } from '../components/Modal';
 import { NewBankAccountModal } from '../components/NewBankAccountModal';
 import { PageHeader } from '../components/PageHeader';
@@ -298,17 +300,48 @@ function BrokerSettings({ data, profile, reload }: { data: ArcData; profile: Pro
 
 function BankAccountSettings({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
-  const [editing, setEditing] = useState<Partial<BankAccount> | null>(null);
+  const [editing, setEditing] = useState<BankAccount | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
   async function save() {
-    if (!editing?.account_name || !editing.broker_id || !editing.account_no) return pushToast({ type: 'warning', title: '請輸入帳戶資料' });
-    if (editing.is_default && editing.broker_id) {
-      await supabase.from('bank_accounts').update({ is_default: false, updated_by: profile?.id }).eq('broker_id', editing.broker_id).neq('id', editing.id ?? '00000000-0000-0000-0000-000000000000');
+    if (!editing || pending.current) return;
+    if (!profile?.is_active || profile.role !== 'admin') return pushToast({ type: 'warning', title: '只有管理員可以修改帳戶進階設定。' });
+    pending.current = true;
+    setSaving(true);
+    try {
+      const details = normalizeBankAccountDetails(editing);
+      if (!editing.broker_id || !Number.isFinite(editing.initial_balance)) throw new Error('請確認所屬仲介及初始餘額。');
+      const { data: existing, error } = await supabase.from('bank_accounts').select('id, account_no')
+        .eq('broker_id', editing.broker_id).eq('bank_code', details.bank_code).is('deleted_at', null);
+      if (error) throw error;
+      if (existing?.some((row) => row.id !== editing.id && String(row.account_no).normalize('NFKC').replace(/[\s-]/g, '') === details.account_no)) throw new Error('此仲介已設定相同的銀行帳號，請確認現有帳戶。');
+      // Exclude generated fields and the balance loaded when the dialog was opened.
+      await upsertSettingTable('bank_accounts', { id: editing.id, broker_id: editing.broker_id, ...details,
+        initial_balance: editing.initial_balance, is_enabled: editing.is_enabled, is_default: editing.is_default ?? false }, profile, '帳戶設定');
+    } catch (error) {
+      pushToast({ type: 'error', title: '修改失敗', message: error instanceof Error ? error.message : (error as { message?: string })?.message ?? '請稍後再試' });
+      pending.current = false;
+      setSaving(false);
+      return;
     }
-    await upsertSettingTable('bank_accounts', editing, profile, '帳戶設定');
+    // Do not clear another account's default before this account has saved successfully.
+    if (editing.is_default) {
+      try {
+        const { error } = await supabase.from('bank_accounts').update({ is_default: false, updated_by: profile.id })
+          .eq('broker_id', editing.broker_id).neq('id', editing.id).is('deleted_at', null);
+        if (error) throw error;
+      } catch {
+        pushToast({ type: 'warning', title: '帳戶已儲存，預設扣款設定未完成，請重新設定。' });
+      }
+    }
     pushToast({ type: 'success', title: '已儲存' });
     setEditing(null);
-    await reload();
+    pending.current = false;
+    setSaving(false);
+    try { await reload(); } catch {
+      pushToast({ type: 'warning', title: '帳戶已更新，請重新整理頁面載入最新資料。' });
+    }
   }
   return <CrudCard title="帳戶設定" onNew={() => setShowCreate(true)}>
     <DataTable columns={[
@@ -321,7 +354,8 @@ function BankAccountSettings({ data, profile, reload }: { data: ArcData; profile
       { key: 'action', title: '操作', render: (row: BankAccount) => <SettingActions row={row} table="bank_accounts" pageName="帳戶設定" profile={profile} reload={reload} onEdit={() => setEditing(row)} /> }
     ]} rows={data.accounts} rowKey={(row) => row.id} />
     {showCreate ? <NewBankAccountModal brokers={data.brokers} profile={profile} reload={reload} onClose={() => setShowCreate(false)} /> : null}
-    {editing ? <Modal title="帳戶設定" onClose={() => setEditing(null)}><div className="form-grid two-col"><label><span>所屬仲介</span><select value={editing.broker_id ?? ''} onChange={(e) => setEditing({ ...editing, broker_id: e.target.value })}>{data.brokers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><TextField label="帳戶名稱" value={editing.account_name} onChange={(v) => setEditing({ ...editing, account_name: v })} /><TextField label="銀行代碼" value={editing.bank_code} onChange={(v) => setEditing({ ...editing, bank_code: v })} /><TextField label="銀行名稱" value={editing.bank_name} onChange={(v) => setEditing({ ...editing, bank_name: v })} /><TextField label="帳號" value={editing.account_no} onChange={(v) => setEditing({ ...editing, account_no: v })} /><TextField label="初始餘額" value={String(editing.initial_balance ?? 0)} onChange={(v) => { const amount = parseMoney(v) ?? 0; setEditing({ ...editing, initial_balance: amount, current_balance: editing.id ? editing.current_balance : amount }); }} /><BoolField label="是否啟用" checked={editing.is_enabled ?? true} onChange={(v) => setEditing({ ...editing, is_enabled: v })} /><BoolField label="預設扣款帳戶" checked={editing.is_default ?? false} onChange={(v) => setEditing({ ...editing, is_default: v })} /></div><div className="form-actions"><button className="primary-button" onClick={save}>儲存</button></div></Modal> : null}
+    {editing && profile?.role !== 'admin' ? <EditBankAccountModal key={editing.id} account={editing} brokerName={data.brokers.find((broker) => broker.id === editing.broker_id)?.name ?? ''} profile={profile} reload={reload} onClose={() => setEditing(null)} /> : null}
+    {editing && profile?.role === 'admin' ? <Modal title="帳戶設定" onClose={() => { if (!pending.current) setEditing(null); }}><fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><div className="form-grid two-col"><label><span>所屬仲介</span><select value={editing.broker_id ?? ''} onChange={(e) => setEditing({ ...editing, broker_id: e.target.value })}>{data.brokers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><TextField label="帳戶名稱" value={editing.account_name} onChange={(v) => setEditing({ ...editing, account_name: v })} /><TextField label="銀行代碼" value={editing.bank_code} onChange={(v) => setEditing({ ...editing, bank_code: v })} /><TextField label="銀行名稱" value={editing.bank_name} onChange={(v) => setEditing({ ...editing, bank_name: v })} /><TextField label="帳號" value={editing.account_no} onChange={(v) => setEditing({ ...editing, account_no: v })} /><TextField label="初始餘額" value={String(editing.initial_balance ?? 0)} onChange={(v) => { const amount = parseMoney(v); if (amount !== null && Number.isFinite(amount)) setEditing({ ...editing, initial_balance: amount }); }} /><BoolField label="是否啟用" checked={editing.is_enabled ?? true} onChange={(v) => setEditing({ ...editing, is_enabled: v })} /><BoolField label="預設扣款帳戶" checked={editing.is_default ?? false} onChange={(v) => setEditing({ ...editing, is_default: v })} /></div><div className="form-actions"><button type="button" className="primary-button" onClick={save}>{saving ? '儲存中…' : '儲存'}</button></div></fieldset></Modal> : null}
   </CrudCard>;
 }
 

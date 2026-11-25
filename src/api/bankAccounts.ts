@@ -1,9 +1,47 @@
 import { supabase } from '../lib/supabase';
 import type { BankAccount, Profile } from '../types';
-import { canCreateBankAccount } from '../utils/permissions';
+import { canCreateBankAccount, canEditBankAccount } from '../utils/permissions';
 import { addAudit } from './repository';
 
 export type NewBankAccount = Pick<BankAccount, 'broker_id' | 'account_name' | 'bank_code' | 'bank_name' | 'account_no' | 'initial_balance'>;
+export type BankAccountDetails = Pick<BankAccount, 'account_name' | 'bank_code' | 'bank_name' | 'account_no'>;
+
+export function normalizeBankAccountDetails(input: BankAccountDetails): BankAccountDetails {
+  const details = {
+    account_name: input.account_name.trim(),
+    bank_code: input.bank_code.normalize('NFKC').trim(),
+    bank_name: input.bank_name.trim(),
+    account_no: input.account_no.normalize('NFKC').replace(/[\s-]/g, '')
+  };
+  if (!details.account_name || !details.bank_name) throw new Error('請完整填寫帳戶名稱及銀行名稱。');
+  if (!/^\d{3}$/.test(details.bank_code)) throw new Error('銀行代碼請輸入 3 位數字。');
+  if (!/^\d+$/.test(details.account_no)) throw new Error('請輸入正確的銀行帳號。');
+  return details;
+}
+
+export async function updateBankAccount(account: BankAccount, input: BankAccountDetails, actor: Profile | null): Promise<BankAccount> {
+  if (!actor?.is_active || !canEditBankAccount(actor.role)) throw new Error('您沒有修改扣款帳號的權限。');
+  const details = normalizeBankAccountDetails(input);
+  const { data: existing, error: lookupError } = await supabase.from('bank_accounts').select('id, account_no')
+    .eq('broker_id', account.broker_id).eq('bank_code', details.bank_code).is('deleted_at', null);
+  if (lookupError) throw lookupError;
+  if (existing?.some((row) => row.id !== account.id && String(row.account_no).normalize('NFKC').replace(/[\s-]/g, '') === details.account_no)) {
+    throw new Error('此仲介已設定相同的銀行帳號，請確認現有帳戶。');
+  }
+
+  // Only account details are editable here. Never send a stale balance or generated column.
+  const { data, error } = await supabase.from('bank_accounts').update({ ...details, updated_by: actor.id })
+    .eq('id', account.id).eq('broker_id', account.broker_id).is('deleted_at', null)
+    .eq('account_name', account.account_name).eq('bank_code', account.bank_code)
+    .eq('bank_name', account.bank_name).eq('account_no', account.account_no).select('*').maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('帳戶資料已異動或已刪除，請重新整理後再修改。');
+  await addAudit({ action_type: '修改扣款帳號', actor_id: actor.id, actor_name: actor.display_name,
+    page_name: '仲介與扣款帳號', record_table: 'bank_accounts', record_id: account.id,
+    old_data: { account_name: account.account_name, bank_code: account.bank_code, bank_name: account.bank_name, account_no: account.account_no },
+    new_data: details });
+  return data as BankAccount;
+}
 
 export async function createBankAccount(input: NewBankAccount, actor: Profile | null): Promise<BankAccount> {
   if (!actor?.is_active || !canCreateBankAccount(actor.role)) throw new Error('您沒有新增扣款帳號的權限。');

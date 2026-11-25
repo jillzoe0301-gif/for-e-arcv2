@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { adjustAccountBalance } from '../api/repository';
 import { DataTable } from '../components/DataTable';
+import { EditBankAccountModal } from '../components/EditBankAccountModal';
 import { Modal } from '../components/Modal';
 import { NewBankAccountModal } from '../components/NewBankAccountModal';
 import { PageHeader } from '../components/PageHeader';
 import { useToast } from '../context/ToastContext';
 import type { ArcData, BankAccount, Profile } from '../types';
 import { formatMoney, parseMoney } from '../utils/number';
-import { canAdjustBalance, canCreateBankAccount } from '../utils/permissions';
+import { canAdjustBalance, canCreateBankAccount, canEditBankAccount } from '../utils/permissions';
 
 export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; profile: Profile | null; reload: () => Promise<void> }) {
   const { pushToast } = useToast();
@@ -15,6 +16,7 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
   const [nextBalance, setNextBalance] = useState('');
   const [reason, setReason] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<BankAccount | null>(null);
 
   function open(account: BankAccount) {
     setTarget(account);
@@ -71,10 +73,11 @@ export function BrokersAccountsPage({ data, profile, reload }: { data: ArcData; 
           { key: 'balance', title: '目前餘額', render: (row: BankAccount) => formatMoney(row.current_balance) },
           { key: 'default', title: '預設帳戶', render: (row: BankAccount) => row.is_default ? '是' : '否' },
           { key: 'enabled', title: '是否啟用', render: (row: BankAccount) => row.is_enabled ? '啟用' : '停用' },
-          { key: 'action', title: '操作', render: (row: BankAccount) => canAdjustBalance(profile?.role) ? <button className="secondary-button mini" onClick={() => open(row)}>調整餘額</button> : <span className="subtle-text">僅可查看</span> }
+          { key: 'action', title: '操作', render: (row: BankAccount) => <div className="action-stack horizontal">{canEditBankAccount(profile?.role) ? <button type="button" className="secondary-button mini" onClick={() => setEditing(row)}>修改帳戶</button> : null}{canAdjustBalance(profile?.role) ? <button type="button" className="secondary-button mini" onClick={() => open(row)}>調整餘額</button> : null}{!canEditBankAccount(profile?.role) && !canAdjustBalance(profile?.role) ? <span className="subtle-text">僅可查看</span> : null}</div> }
         ]} rows={data.accounts} rowKey={(row) => row.id} />
       </section>
       {showCreate ? <NewBankAccountModal brokers={data.brokers} profile={profile} reload={reload} onClose={() => setShowCreate(false)} /> : null}
+      {editing ? <EditBankAccountModal key={editing.id} account={editing} brokerName={data.brokers.find((broker) => broker.id === editing.broker_id)?.name ?? ''} profile={profile} reload={reload} onClose={() => setEditing(null)} /> : null}
       {target ? (
         <Modal title="調整帳戶餘額" onClose={() => setTarget(null)}>
           <p>{target.account_name}</p>
